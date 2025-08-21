@@ -29,7 +29,11 @@ What is Kickstart?
     what your configuration is doing, and modify it to suit your needs.
 
     Once you've done that, you can start exploring, configuring and tinkering to
-    make Neovim your own! That might mean leaving Kickstart just the way it is for a while
+    make Neovim your own! That might mean leaving Kickstart just the way it is for a whilExternal Provider Customer ID,Square Customer ID,External Provider Card Id,Square Card Id,Card Last 4,Card Exp Month,Card Exp Year 
+2000437202,WZ85BQMBQSYD09BFEBGFXTWFJ4,ce36323f-24ca-466f-9241-6b42cefc14d0,ccof:CA4SEKTLqiG82WTrbmQHGfvQqtcoAg,9016,1,2029 
+2000832136,VQQFJ54BG43GQCH5PY0PF0PVQW,8d43b540-1cee-46b9-9e7b-d2e7c6341b07,ccof:CA4SEKeF8mAFmj8HeT-J-FO25bsoAg,1005,11,2027 
+2000465429,DYMPW63FXERE2JKVJ5GZHBWY64,66729b9a-666b-4903-9d85-71f68c7d1e21,ccof:CA4SEIIVvafwtncWz-akTdI8_s0oAg,4728,4,2026 
+2000832136,VQQFJ54BG43GQCH5PY0PF0PVQW,408b8232-822c-4c21-913e-13ad9931cc34,ccof:CA4SEB8CW6lViwQABkw_0ViR-bIoAg,1005,11,2027 e
     or immediately breaking it into modular pieces. It's up to you!
 
     If you don't know anything about Lua, I recommend taking some time to read through
@@ -980,7 +984,7 @@ require('lazy').setup({
     main = 'nvim-treesitter.configs', -- Sets main module to use for opts
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
     opts = {
-      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' },
+      ensure_installed = { 'bash', 'c', 'diff', 'rust', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' },
       -- Autoinstall languages that are not installed
       auto_install = true,
       highlight = {
@@ -1003,7 +1007,7 @@ require('lazy').setup({
     'MeanderingProgrammer/render-markdown.nvim',
     dependencies = { 'nvim-treesitter/nvim-treesitter', 'echasnovski/mini.nvim' }, -- if you use the mini.nvim suite
     -- dependencies = { 'nvim-treesitter/nvim-treesitter', 'echasnovski/mini.icons' }, -- if you use standalone mini plugins
-    -- dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-tree/nvim-web-devicons' }, -- if you prefer nvim-web-devicons
+    dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-tree/nvim-web-devicons' }, -- if you prefer nvim-web-devicons
     ---@module 'render-markdown'
     ---@type render.md.UserConfig
     opts = {},
@@ -1059,3 +1063,45 @@ require('lazy').setup({
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
+
+-- Path to store the chosen theme
+local theme_file = vim.fn.stdpath 'config' .. '/.last_colorscheme'
+
+-- Function to apply a theme
+local function apply_theme(name)
+  local ok, err = pcall(vim.cmd.colorscheme, name)
+  if not ok then
+    vim.notify('Error loading colorscheme ' .. name .. ': ' .. err, vim.log.levels.ERROR)
+    return
+  end
+  -- Save the theme to file
+  local f = io.open(theme_file, 'w')
+  if f then
+    f:write(name)
+    f:close()
+  end
+end
+
+-- Command to set and save theme
+vim.api.nvim_create_user_command('Setdcolor', function(opts)
+  apply_theme(opts.args)
+end, {
+  nargs = 1,
+  complete = function(_, _, _)
+    -- Dynamically return all installed colorschemes
+    return vim.fn.getcompletion('', 'color')
+  end,
+})
+
+-- Load last theme on startup
+local f = io.open(theme_file, 'r')
+if f then
+  local last = f:read '*l'
+  f:close()
+  if last then
+    -- delay application slightly to ensure lazy-loaded themes exist
+    vim.schedule(function()
+      apply_theme(last)
+    end)
+  end
+end
