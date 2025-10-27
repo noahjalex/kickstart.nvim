@@ -29,11 +29,7 @@ What is Kickstart?
     what your configuration is doing, and modify it to suit your needs.
 
     Once you've done that, you can start exploring, configuring and tinkering to
-    make Neovim your own! That might mean leaving Kickstart just the way it is for a whilExternal Provider Customer ID,Square Customer ID,External Provider Card Id,Square Card Id,Card Last 4,Card Exp Month,Card Exp Year 
-2000437202,WZ85BQMBQSYD09BFEBGFXTWFJ4,ce36323f-24ca-466f-9241-6b42cefc14d0,ccof:CA4SEKTLqiG82WTrbmQHGfvQqtcoAg,9016,1,2029 
-2000832136,VQQFJ54BG43GQCH5PY0PF0PVQW,8d43b540-1cee-46b9-9e7b-d2e7c6341b07,ccof:CA4SEKeF8mAFmj8HeT-J-FO25bsoAg,1005,11,2027 
-2000465429,DYMPW63FXERE2JKVJ5GZHBWY64,66729b9a-666b-4903-9d85-71f68c7d1e21,ccof:CA4SEIIVvafwtncWz-akTdI8_s0oAg,4728,4,2026 
-2000832136,VQQFJ54BG43GQCH5PY0PF0PVQW,408b8232-822c-4c21-913e-13ad9931cc34,ccof:CA4SEB8CW6lViwQABkw_0ViR-bIoAg,1005,11,2027 e
+    make Neovim your own! That might mean leaving Kickstart just the way it is for a while
     or immediately breaking it into modular pieces. It's up to you!
 
     If you don't know anything about Lua, I recommend taking some time to read through
@@ -884,9 +880,15 @@ require('lazy').setup({
       },
 
       sources = {
-        default = { 'lsp', 'path', 'snippets', 'lazydev' },
+        default = { 'lsp', 'path', 'snippets', 'buffer', 'lazydev' },
+        per_filetype = {
+          sql = { 'snippets', 'dadbod', 'buffer' },
+          mysql = { 'snippets', 'dadbod', 'buffer' },
+          plsql = { 'snippets', 'dadbod', 'buffer' },
+        },
         providers = {
           lazydev = { module = 'lazydev.integrations.blink', score_offset = 100 },
+          dadbod = { name = 'Dadbod', module = 'vim_dadbod_completion.blink' },
         },
       },
 
@@ -1033,7 +1035,7 @@ require('lazy').setup({
   --    This is the easiest way to modularize your config.
   --
   --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
-  -- { import = 'custom.plugins' },
+  { import = 'custom.plugins' },
   --
   -- For additional information with loading, sourcing and examples see `:help lazy.nvim-🔌-plugin-spec`
   -- Or use telescope!
