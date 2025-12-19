@@ -1105,3 +1105,29 @@ if f then
     end)
   end
 end
+
+local function transparent_bg()
+  local groups = {
+    'Normal',
+    'NormalNC',
+    'NormalFloat',
+    'FloatBorder',
+    'SignColumn',
+    'LineNr',
+    'CursorLineNr',
+    'EndOfBuffer',
+    'FoldColumn',
+    'WinSeparator',
+  }
+
+  for _, group in ipairs(groups) do
+    vim.api.nvim_set_hl(0, group, { bg = 'none' })
+  end
+end
+
+local transparent = true
+
+vim.api.nvim_create_user_command('TransparentBg', function()
+  transparent = not transparent
+  transparent_bg()
+end, {})
