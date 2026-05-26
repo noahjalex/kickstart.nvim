@@ -756,6 +756,9 @@ require('lazy').setup({
       require('mason-lspconfig').setup {
         ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
         automatic_installation = false,
+        automatic_enable = {
+          exclude = { 'jdtls' },
+        },
         handlers = {
           function(server_name)
             local server = servers[server_name] or {}
@@ -769,20 +772,6 @@ require('lazy').setup({
       }
     end,
   },
-  -- Java MFUSSENEGGER SETUP
-  {
-    'mfussenegger/nvim-jdtls',
-    ft = 'java',
-    config = function()
-      local jdtls = require 'jdtls'
-      local config = {
-        cmd = { '/Users/nalexander/.local/share/nvim/mason/packages/jdtls/jdtls' },
-        root_dir = jdtls.setup.find_root { '.git', 'mvnw', 'gradlew', 'pom.xml', 'build.gradle' },
-      }
-      jdtls.start_or_attach(config)
-    end,
-  },
-  --
   { -- Manual formatting
     'stevearc/conform.nvim',
     cmd = { 'ConformInfo' },
