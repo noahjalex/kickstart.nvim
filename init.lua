@@ -781,8 +781,32 @@ require('lazy').setup({
         function()
           require('conform').format { async = true, lsp_format = 'fallback' }
         end,
-        mode = '',
+        mode = 'n',
         desc = '[F]ormat buffer',
+      },
+      {
+        '<leader>f',
+        function()
+          local start_line = vim.fn.line "'<"
+          local end_line = vim.fn.line "'>"
+
+          if end_line < start_line then
+            start_line, end_line = end_line, start_line
+          end
+
+          local last_line = vim.api.nvim_buf_get_lines(0, end_line - 1, end_line, true)[1] or ''
+
+          require('conform').format {
+            async = true,
+            lsp_format = 'fallback',
+            range = {
+              start = { start_line, 0 },
+              ['end'] = { end_line, #last_line },
+            },
+          }
+        end,
+        mode = 'x',
+        desc = '[F]ormat selection',
       },
     },
     opts = {
