@@ -422,11 +422,16 @@ require('lazy').setup({
 
       -- [[ Configure Telescope ]]
       -- See `:help telescope` and `:help telescope.setup()`
-      require('telescope').setup {
+      local telescope = require 'telescope'
+
+      telescope.setup {
         -- You can put your default mappings / updates / etc. in here
         --  All the info you're looking for is in `:help telescope.setup()`
         --
         defaults = {
+          mappings = {
+            i = { ['<c-enter>'] = 'to_fuzzy_refine' },
+          },
           vimgrep_arguments = {
             'rg',
             '--color=never',
@@ -452,25 +457,72 @@ require('lazy').setup({
       }
 
       -- Enable Telescope extensions if they are installed
-      pcall(require('telescope').load_extension, 'fzf')
-      pcall(require('telescope').load_extension, 'ui-select')
+      pcall(telescope.load_extension, 'fzf')
+      pcall(telescope.load_extension, 'ui-select')
 
       -- See `:help telescope.builtin`
       local builtin = require 'telescope.builtin'
+
+      local function exact_first_sorter(opts)
+        opts = opts or {}
+        opts.case_mode = opts.case_mode or 'ignore_case'
+        opts.fuzzy = vim.F.if_nil(opts.fuzzy, true)
+
+        local ok, sorter = pcall(function()
+          return telescope.extensions.fzf.native_fzf_sorter(opts)
+        end)
+        if not ok then
+          sorter = require('telescope.sorters').get_fzy_sorter(opts)
+        end
+
+        local base_scoring_function = sorter.scoring_function
+        sorter.scoring_function = function(self, prompt, line, ...)
+          local score = base_scoring_function(self, prompt, line, ...)
+          if score == -1 or prompt == '' then
+            return score
+          end
+
+          if line:lower():find(prompt:lower(), 1, true) then
+            return score
+          end
+
+          return score + 1
+        end
+
+        return sorter
+      end
+
+      require('telescope.config').set_defaults {
+        file_sorter = exact_first_sorter,
+        generic_sorter = exact_first_sorter,
+      }
+
+      local function find_files(opts)
+        opts = opts or {}
+        opts.sorter = exact_first_sorter(opts)
+        builtin.find_files(opts)
+      end
+
+      local function live_grep(opts)
+        opts = opts or {}
+        opts.sorter = exact_first_sorter(opts)
+        builtin.live_grep(opts)
+      end
+
       vim.keymap.set('n', '<C-d>', '<C-d>zz', { desc = 'Scroll down a page' })
       vim.keymap.set('n', '<C-u>', '<C-u>zz', { desc = 'Scroll up a page' })
       vim.keymap.set('n', '<leader>sh', builtin.help_tags, { desc = '[S]earch [H]elp' })
       vim.keymap.set('n', '<leader>sk', builtin.keymaps, { desc = '[S]earch [K]eymaps' })
-      vim.keymap.set('n', '<leader>sf', builtin.find_files, { desc = '[S]earch [F]iles' })
+      vim.keymap.set('n', '<leader>sf', find_files, { desc = '[S]earch [F]iles' })
       vim.keymap.set('n', '<leader>sF', function()
-        builtin.find_files {
+        find_files {
           hidden = true,
           no_ignore = true,
         }
       end, { desc = '[S]earch [F]iles (including hidden)' })
       vim.keymap.set('n', '<leader>ss', builtin.builtin, { desc = '[S]earch [S]elect Telescope' })
       vim.keymap.set('n', '<leader>sw', builtin.grep_string, { desc = '[S]earch current [W]ord' })
-      vim.keymap.set('n', '<leader>sg', builtin.live_grep, { desc = '[S]earch by [G]rep' })
+      vim.keymap.set('n', '<leader>sg', live_grep, { desc = '[S]earch by [G]rep' })
       vim.keymap.set('n', '<leader>sd', builtin.diagnostics, { desc = '[S]earch [D]iagnostics' })
       vim.keymap.set('n', '<leader>sr', builtin.resume, { desc = '[S]earch [R]esume' })
       vim.keymap.set('n', '<leader>s.', builtin.oldfiles, { desc = '[S]earch Recent Files ("." for repeat)' })
@@ -488,7 +540,7 @@ require('lazy').setup({
       -- It's also possible to pass additional configuration options.
       --  See `:help telescope.builtin.live_grep()` for information about particular keys
       vim.keymap.set('n', '<leader>s/', function()
-        builtin.live_grep {
+        live_grep {
           grep_open_files = true,
           prompt_title = 'Live Grep in Open Files',
         }
@@ -496,7 +548,7 @@ require('lazy').setup({
 
       -- Shortcut for searching your Neovim configuration files
       vim.keymap.set('n', '<leader>sn', function()
-        builtin.find_files { cwd = vim.fn.stdpath 'config' }
+        find_files { cwd = vim.fn.stdpath 'config' }
       end, { desc = '[S]earch [N]eovim files' })
     end,
   },
