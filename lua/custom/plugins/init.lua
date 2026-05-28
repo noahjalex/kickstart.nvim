@@ -7,6 +7,20 @@ return {
 	"kristijanhusak/vim-dadbod-ui",
 	"kristijanhusak/vim-dadbod-completion",
 	{
+		"ibhagwan/fzf-lua",
+		cmd = "FzfLua",
+		opts = {
+			winopts = {
+				width = 0.98,
+				height = 0.95,
+				preview = {
+					layout = "horizontal",
+					horizontal = "right:35%",
+				},
+			},
+		},
+	},
+	{
 		"siawkz/nvim-cheatsh",
 		dependencies = {
 			"ibhagwan/fzf-lua",

@@ -429,6 +429,15 @@ require('lazy').setup({
         --  All the info you're looking for is in `:help telescope.setup()`
         --
         defaults = {
+          layout_strategy = 'horizontal',
+          layout_config = {
+            width = 0.98,
+            height = 0.95,
+            horizontal = {
+              preview_cutoff = 1,
+              preview_width = 0.35,
+            },
+          },
           mappings = {
             i = { ['<c-space>'] = 'to_fuzzy_refine' },
           },
@@ -443,12 +452,30 @@ require('lazy').setup({
           },
         },
         pickers = {
+          find_files = {
+            layout_strategy = 'horizontal',
+            layout_config = {
+              horizontal = {
+                preview_cutoff = 1,
+                preview_width = 0.35,
+              },
+            },
+          },
           live_grep = {
             layout_strategy = 'horizontal',
             layout_config = {
               horizontal = {
                 preview_cutoff = 1,
-                preview_width = 0.55,
+                preview_width = 0.35,
+              },
+            },
+          },
+          grep_string = {
+            layout_strategy = 'horizontal',
+            layout_config = {
+              horizontal = {
+                preview_cutoff = 1,
+                preview_width = 0.35,
               },
             },
           },
