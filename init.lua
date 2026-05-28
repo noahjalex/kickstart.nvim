@@ -745,6 +745,21 @@ require('lazy').setup({
       --  So, we create new capabilities with blink.cmp, and then broadcast that to the servers.
       local capabilities = require('blink.cmp').get_lsp_capabilities()
 
+      local function java_home(version)
+        local home = vim.fn.systemlist { '/usr/libexec/java_home', '-v', version }
+        if vim.v.shell_error == 0 and home[1] and home[1] ~= '' then
+          return home[1]
+        end
+      end
+
+      -- Kotlin/Gradle tooling currently fails under Java 25. Run Java-backed
+      -- language servers with the latest installed Java 21 instead.
+      local java21_home = java_home '21'
+      local java21_env = java21_home and {
+        JAVA_HOME = java21_home,
+        PATH = java21_home .. '/bin:' .. vim.env.PATH,
+      } or nil
+
       -- Enable the following language servers
       --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
       --
@@ -785,6 +800,10 @@ require('lazy').setup({
             },
           },
         },
+        kotlin_language_server = {
+          cmd = { vim.fn.stdpath 'data' .. '/mason/bin/kotlin-language-server' },
+          cmd_env = java21_env,
+        },
         templ = {},
       }
 
@@ -811,7 +830,12 @@ require('lazy').setup({
         ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
         automatic_installation = false,
         automatic_enable = {
-          exclude = { 'jdtls' },
+          exclude = {
+            'jdtls',
+            -- Mason's kotlin-lsp package currently exposes intellij-server, not
+            -- the kotlin-lsp executable expected by nvim-lspconfig.
+            'kotlin_lsp',
+          },
         },
         handlers = {
           function(server_name)
