@@ -442,7 +442,17 @@ require('lazy').setup({
             '--ignore-case',
           },
         },
-        -- pickers = {}
+        pickers = {
+          live_grep = {
+            layout_strategy = 'horizontal',
+            layout_config = {
+              horizontal = {
+                preview_cutoff = 1,
+                preview_width = 0.55,
+              },
+            },
+          },
+        },
         extensions = {
           fzf = {
             fuzzy = true,
