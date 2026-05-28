@@ -15,6 +15,20 @@ return {
 		config = function()
 			require("huez").setup({
 				fallback = "tokyonight-night",
+				picker = {
+					live = {
+						opts = { initial_mode = "normal" },
+					},
+					ensured = {
+						opts = { initial_mode = "normal" },
+					},
+					themes = {
+						opts = { initial_mode = "normal" },
+					},
+					favorites = {
+						opts = { initial_mode = "normal" },
+					},
+				},
 			})
 		end,
 	},
