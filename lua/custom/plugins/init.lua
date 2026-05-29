@@ -28,6 +28,59 @@ return {
 		opts = {},
 	},
 	{
+		-- Open-source, local AI syntax help/completions via Ollama.
+		-- Recommended fast model: `ollama pull qwen2.5-coder:1.5b`.
+		"David-Kunz/gen.nvim",
+		cmd = "Gen",
+		keys = {
+			{ "<leader>at", "<cmd>Gen Chat<CR>", mode = "n", desc = "AI chat" },
+			{ "<leader>ag", "<cmd>Gen Generate<CR>", mode = "n", desc = "AI generate" },
+			{ "<leader>ag", ":Gen Generate<CR>", mode = "v", desc = "AI generate" },
+			{ "<leader>aa", "<cmd>Gen Ask<CR>", mode = "n", desc = "AI ask about buffer" },
+			{ "<leader>aa", ":Gen Ask<CR>", mode = "v", desc = "AI ask about selection" },
+			{ "<leader>ar", ":Gen Change<CR>", mode = "v", desc = "AI rewrite selection" },
+			{ "<leader>ah", "<cmd>Gen SyntaxHelp<CR>", mode = "n", desc = "AI syntax help" },
+			{ "<leader>ah", ":Gen SyntaxHelp<CR>", mode = "v", desc = "AI syntax help" },
+			{ "<leader>ac", ":Gen Complete_Code<CR>", mode = "v", desc = "AI complete selected code" },
+		},
+		opts = {
+			model = "qwen2.5-coder:3b",
+			display_mode = "float",
+			win_config = {
+				relative = "editor",
+				width = math.floor(vim.o.columns * 0.9),
+				height = math.floor(vim.o.lines * 0.75),
+				row = math.floor(vim.o.lines * 0.1),
+				col = math.floor(vim.o.columns * 0.05),
+				border = "rounded",
+			},
+			show_prompt = false,
+			show_model = true,
+			prompts = {
+				Complete_Code = {
+					prompt = "Complete the following $filetype code. Only output the completed code in format ```$filetype\n...\n```:\n```$filetype\n$text\n```",
+					replace = true,
+					extract = "```$filetype\n(.-)```",
+				},
+				SyntaxHelp = {
+					prompt = "Explain the syntax or idiom in this $filetype code briefly. Include the corrected form if something is wrong:\n```$filetype\n$text\n```",
+				},
+			},
+		},
+		config = function(_, opts)
+			local gen = require("gen")
+			local setup_opts = vim.deepcopy(opts)
+			local prompts = setup_opts.prompts or {}
+
+			setup_opts.prompts = nil
+			gen.setup(setup_opts)
+
+			for name, prompt in pairs(prompts) do
+				gen.prompts[name] = prompt
+			end
+		end,
+	},
+	{
 		-- Install markdown preview, use npx if available.
 		"iamcco/markdown-preview.nvim",
 		cmd = { "MarkdownPreviewToggle", "MarkdownPreview", "MarkdownPreviewStop" },
