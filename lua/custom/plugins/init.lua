@@ -21,13 +21,6 @@ return {
 		},
 	},
 	{
-		"siawkz/nvim-cheatsh",
-		dependencies = {
-			"ibhagwan/fzf-lua",
-		},
-		opts = {},
-	},
-	{
 		-- Open-source, local AI syntax help/completions via Ollama.
 		-- Recommended fast model: `ollama pull qwen2.5-coder:1.5b`.
 		"David-Kunz/gen.nvim",
@@ -44,7 +37,7 @@ return {
 			{ "<leader>ac", ":Gen Complete_Code<CR>", mode = "v", desc = "AI complete selected code" },
 		},
 		opts = {
-			model = "qwen2.5-coder:3b",
+			model = "qwen3-coder:latest",
 			display_mode = "float",
 			win_config = {
 				relative = "editor",
