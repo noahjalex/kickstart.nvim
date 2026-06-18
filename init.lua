@@ -1104,7 +1104,6 @@ require('lazy').setup({
         'diff',
         'rust',
         'html',
-        'lua',
         'luadoc',
         'markdown',
         'markdown_inline',
