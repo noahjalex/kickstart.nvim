@@ -2,6 +2,8 @@ tags
 test.sh
 .luarc.json
 nvim
+.env
+http-client.private.env.json
 
 spell/
 lazy-lock.json

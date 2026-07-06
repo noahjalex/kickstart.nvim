@@ -363,6 +363,7 @@ require('lazy').setup({
 
       -- Document existing key chains
       spec = {
+        { '<leader>d', group = '[D]ebug' },
         { '<leader>s', group = '[S]earch' },
         { '<leader>t', group = '[T]oggle' },
         { '<leader>h', group = 'Git [H]unk', mode = { 'n', 'v' } },
@@ -823,6 +824,7 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
+        'tree-sitter-cli', -- Used to compile Treesitter parsers
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -1096,28 +1098,32 @@ require('lazy').setup({
   { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
     branch = 'main',
+    lazy = false,
     build = ':TSUpdate',
-    opts = {
-      ensure_installed = {
+    config = function()
+      require('nvim-treesitter').install {
         'bash',
         'diff',
-        'rust',
+        'go',
+        'gomod',
+        'gosum',
         'html',
+        'java',
+        'kotlin',
+        'templ',
+        'json',
         'luadoc',
-      },
-      -- Autoinstall languages that are not installed
-      auto_install = true,
-      highlight = {
-        enable = true,
-        -- Some languages depend on vim's regex highlighting system (such as Ruby) for indent rules.
-        --  If you are experiencing weird indenting issues, add the language to
-        --  the list of additional_vim_regex_highlighting and disabled languages for indent.
-        additional_vim_regex_highlighting = { 'ruby' },
-      },
-      -- Use guess-indent.nvim for indentation settings instead of Treesitter's
-      -- indentexpr, which can be disruptive while editing incomplete syntax.
-      indent = { enable = false },
-    },
+        'rust',
+      }
+
+      -- The main branch delegates highlighting to Neovim instead of providing
+      -- the old highlight.enable module.
+      vim.api.nvim_create_autocmd('FileType', {
+        callback = function(event)
+          pcall(vim.treesitter.start, event.buf)
+        end,
+      })
+    end,
     -- There are additional nvim-treesitter modules that you can use to interact
     -- with nvim-treesitter. You should go explore a few and see what interests you:
     --

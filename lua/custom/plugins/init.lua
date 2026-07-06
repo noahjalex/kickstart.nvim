@@ -3,6 +3,19 @@
 --
 -- See the kickstart.nvim README for more information
 return {
+	{
+		"mistweaverco/kulala.nvim",
+		ft = { "http", "rest" },
+		keys = {
+			{ "<leader>ko", desc = "Kulala open" },
+			{ "<leader>kb", desc = "Kulala scratchpad" },
+			{ "<leader>ks", desc = "Kulala send request" },
+		},
+		opts = {
+			global_keymaps = true,
+			global_keymaps_prefix = "<leader>k",
+		},
+	},
 	"tpope/vim-dadbod",
 	"kristijanhusak/vim-dadbod-ui",
 	"kristijanhusak/vim-dadbod-completion",
