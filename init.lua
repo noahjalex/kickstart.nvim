@@ -1100,16 +1100,10 @@ require('lazy').setup({
     opts = {
       ensure_installed = {
         'bash',
-        'c',
         'diff',
         'rust',
         'html',
         'luadoc',
-        'markdown',
-        'markdown_inline',
-        'query',
-        'vim',
-        'vimdoc',
       },
       -- Autoinstall languages that are not installed
       auto_install = true,
