@@ -1,5 +1,2 @@
--- You can add your own plugins here or in other files in this directory!
---  I promise not to create any merge conflicts in this directory :)
---
--- See the kickstart.nvim README for more information
-return { 'tpope/vim-dadbod' }
+-- Dadbod and its completion provider are loaded before Blink in init.lua.
+vim.pack.add { 'https://github.com/kristijanhusak/vim-dadbod-ui' }

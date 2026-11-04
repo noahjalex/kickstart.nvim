@@ -45,9 +45,9 @@ press **`<leader>rm`** (space, r, m with this configuration). The flow is:
 ```
 
 The launcher resolves its own Lua file's symlinks, so individually stowed config
-files still locate the app in the checkout. The LivePreview plugin remains
-available through its explicit command, but is not loaded or started by this
-mapping. No working-directory change is made.
+files still locate the app in the checkout. The LivePreview plugin is configured
+at startup and remains available through its explicit command, but its HTTP server
+is not started by this mapping. No working-directory change is made.
 
 ## Configuration
 
