@@ -10,6 +10,11 @@ A starting point for Neovim that is:
 
 **NOT** a Neovim distribution, but instead a starting point for your configuration.
 
+## Native Markdown preview (macOS)
+
+`<leader>rm` previews saved Markdown paths with unsaved live edits in a native AppKit window.
+See [build, configuration, and verification instructions](native/markdown-preview/README.md).
+
 ## Installation
 
 ### Install Neovim

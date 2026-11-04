@@ -97,14 +97,6 @@ return {
 	{
 		"brianhuster/live-preview.nvim",
 		cmd = "LivePreview",
-		keys = {
-			{
-				"<leader>rm",
-				function() require("custom.markdown-preview").start_markdown_preview() end,
-				ft = "markdown",
-				desc = "[R]ender [M]arkdown in browser",
-			},
-		},
 		config = function()
 			require("livepreview.config").set({ address = "127.0.0.1", dynamic_root = false, browser = "open -a Safari" })
 

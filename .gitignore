@@ -6,4 +6,6 @@ nvim
 http-client.private.env.json
 
 spell/
+native/markdown-preview/.build/
+native/markdown-preview/*.app/
 lazy-lock.json
