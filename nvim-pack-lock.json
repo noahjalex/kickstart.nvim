@@ -5,6 +5,10 @@
       "src": "https://github.com/L3MON4D3/LuaSnip",
       "version": "2.0.0 - 3.0.0"
     },
+    "base16": {
+      "rev": "bd9ad214eaeefec5f937cb49effc3c0ffb2f57ac",
+      "src": "https://github.com/RRethy/base16-nvim"
+    },
     "blink.cmp": {
       "rev": "78336bc89ee5365633bcf754d93df01678b5c08f",
       "src": "https://github.com/saghen/blink.cmp",
@@ -37,11 +41,6 @@
     "guess-indent.nvim": {
       "rev": "84a4987ff36798c2fc1169cbaff67960aed9776f",
       "src": "https://github.com/NMAC427/guess-indent.nvim"
-    },
-    "huez.nvim": {
-      "rev": "03e193e4aa02b5b3a439d0cc5edeb85a2f7b5415",
-      "src": "https://github.com/vague2k/huez.nvim",
-      "version": "'stable'"
     },
     "kulala.nvim": {
       "rev": "125751ea9f41c1ee966c5c7e3032e3539dd2f33e",

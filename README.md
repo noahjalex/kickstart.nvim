@@ -23,10 +23,16 @@ not loaded or modified by this config. Formatting remains manual: `<leader>f`
 formats the buffer in normal mode or the selection in visual mode.
 
 Custom modules follow upstream's direct `vim.pack.add()` / `setup()` convention.
-Huez stable still assumes Lazy internally, so `theme-manager.lua` replaces only
-its theme-installation backend with `vim.pack`. Its pickers and saved lists stay
-available. Previewed themes are retained; use `vim.pack.del()` to remove unwanted
-ones. Mini's icon shim supplies the former `nvim-web-devicons` dependency.
+`<leader>cs` opens Telescope's installed colorscheme picker. Base16 is loaded
+explicitly for the work-theme adapter. Huez is no longer loaded; its saved theme
+cannot interrupt startup. Mini's icon shim supplies the former
+`nvim-web-devicons` dependency.
+
+Check the regular installation (including the work palette, when installed):
+
+```sh
+nvim --headless -c 'luafile tests/startup-smoke.lua'
+```
 
 Run the migration smoke check with `git`, `rsync`, `curl`, `make`, a working C
 compiler, and `tree-sitter` on PATH (plus network access for plugins/Mason):
@@ -39,8 +45,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer tests/migration-smoke.s
 
 It copies the config into a new `/tmp/kickstart-vim-pack.*` directory and sets all
 four XDG homes. It checks real startup, native builds, parser/tool installation,
-keymaps, Lua LSP completion, manual formatting, Java/DAP configuration, Huez theme
-installation, and localhost HTTP path confinement. It retains the directory for
+keymaps, Lua LSP completion, manual formatting, Java/DAP configuration, colorschemes,
+and localhost HTTP path confinement. It retains the directory for
 inspection; remove the printed path after acceptance. Native Markdown app tests
 are separate; see the link above. Java project import, debug sessions, database
 connections, Ollama, UI appearance, and browser/native-window interactions still
