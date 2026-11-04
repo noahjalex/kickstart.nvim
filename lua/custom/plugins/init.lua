@@ -4,6 +4,14 @@
 -- See the kickstart.nvim README for more information
 return {
 	{
+		"folke/zen-mode.nvim",
+		cmd = "ZenMode",
+		keys = {
+			{ "<leader>tz", "<cmd>ZenMode<CR>", desc = "[T]oggle [Z]en mode" },
+		},
+		opts = {},
+	},
+	{
 		"mistweaverco/kulala.nvim",
 		ft = { "http", "rest" },
 		keys = {
@@ -87,21 +95,35 @@ return {
 		end,
 	},
 	{
-		-- Install markdown preview, use npx if available.
-		"iamcco/markdown-preview.nvim",
-		cmd = { "MarkdownPreviewToggle", "MarkdownPreview", "MarkdownPreviewStop" },
-		ft = { "markdown" },
-		build = function(plugin)
-			if vim.fn.executable("npx") then
-				vim.cmd("!cd " .. plugin.dir .. " && cd app && npx --yes yarn install")
-			else
-				vim.cmd([[Lazy load markdown-preview.nvim]])
-				vim.fn["mkdp#util#install"]()
-			end
-		end,
-		init = function()
-			if vim.fn.executable("npx") then
-				vim.g.mkdp_filetypes = { "markdown" }
+		"brianhuster/live-preview.nvim",
+		cmd = "LivePreview",
+		keys = {
+			{
+				"<leader>rm",
+				function() require("custom.markdown-preview").start_markdown_preview() end,
+				ft = "markdown",
+				desc = "[R]ender [M]arkdown in browser",
+			},
+		},
+		config = function()
+			require("livepreview.config").set({ address = "127.0.0.1", dynamic_root = false })
+
+			-- Confine directory hosting to the webroot (including symlink targets).
+			local server = require("livepreview.server").Server
+			local routes = server.routes
+			local plugin_root = require("livepreview.utils").get_plugin_path()
+			function server:routes(path)
+				local plugin_asset = vim.startswith(path, "/live-preview.nvim/")
+				local root = vim.uv.fs_realpath(plugin_asset and plugin_root or self.webroot)
+				local target = vim.uv.fs_realpath(routes(self, path))
+				-- Absolute filesystem links also work, but only inside the chosen root.
+				if not target and not plugin_asset then
+					target = vim.uv.fs_realpath(path)
+				end
+				if root and target and vim.startswith(target, root:gsub("/$", "") .. "/") then
+					return target
+				end
+				return "" -- The HTTP handler returns 404 for missing or out-of-root files.
 			end
 		end,
 	},

@@ -297,7 +297,23 @@ require('lazy').setup({
           vim.keymap.set(mode, l, r, opts)
         end
 
-        map('n', '<leader>gi', gitsigns.preview_hunk_inline)
+        map('n', ']c', function()
+          if vim.wo.diff then
+            vim.cmd.normal { ']c', bang = true }
+          else
+            gitsigns.nav_hunk 'next'
+          end
+        end, { desc = 'Next Git change (:Gitsigns nav_hunk next)' })
+
+        map('n', '[c', function()
+          if vim.wo.diff then
+            vim.cmd.normal { '[c', bang = true }
+          else
+            gitsigns.nav_hunk 'prev'
+          end
+        end, { desc = 'Previous Git change (:Gitsigns nav_hunk prev)' })
+
+        map('n', '<leader>gi', gitsigns.preview_hunk_inline, { desc = 'Preview change inline (:Gitsigns preview_hunk_inline)' })
       end,
     },
   },
@@ -744,21 +760,7 @@ require('lazy').setup({
       --  When you add blink.cmp, luasnip, etc. Neovim now has *more* capabilities.
       --  So, we create new capabilities with blink.cmp, and then broadcast that to the servers.
       local capabilities = require('blink.cmp').get_lsp_capabilities()
-
-      local function java_home(version)
-        local home = vim.fn.systemlist { '/usr/libexec/java_home', '-v', version }
-        if vim.v.shell_error == 0 and home[1] and home[1] ~= '' then
-          return home[1]
-        end
-      end
-
-      -- Kotlin/Gradle tooling currently fails under Java 25. Run Java-backed
-      -- language servers with the latest installed Java 21 instead.
-      local java21_home = java_home '21'
-      local java21_env = java21_home and {
-        JAVA_HOME = java21_home,
-        PATH = java21_home .. '/bin:' .. vim.env.PATH,
-      } or nil
+      vim.lsp.config('*', { capabilities = capabilities })
 
       -- Enable the following language servers
       --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
@@ -800,10 +802,8 @@ require('lazy').setup({
             },
           },
         },
-        kotlin_language_server = {
-          cmd = { vim.fn.stdpath 'data' .. '/mason/bin/kotlin-language-server' },
-          cmd_env = java21_env,
-        },
+        -- JetBrains' server supports current Kotlin and bundles its own JVM.
+        kotlin_lsp = {},
         templ = {},
       }
 
@@ -827,26 +827,20 @@ require('lazy').setup({
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
+      -- Mason v2 enables servers but no longer calls setup handlers.
+      -- Register overrides before enabling servers.
+      for server_name, server in pairs(servers) do
+        vim.lsp.config(server_name, server)
+      end
+
       require('mason-lspconfig').setup {
         ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
-        automatic_installation = false,
         automatic_enable = {
           exclude = {
             'jdtls',
-            -- Mason's kotlin-lsp package currently exposes intellij-server, not
-            -- the kotlin-lsp executable expected by nvim-lspconfig.
-            'kotlin_lsp',
+            -- The old fwcd server bundles Kotlin 2.1 and rejects newer metadata.
+            'kotlin_language_server',
           },
-        },
-        handlers = {
-          function(server_name)
-            local server = servers[server_name] or {}
-            -- This handles overriding only values explicitly passed
-            -- by the server configuration above. Useful when disabling
-            -- certain features of an LSP (for example, turning off formatting for ts_ls)
-            server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
-          end,
         },
       }
     end,
