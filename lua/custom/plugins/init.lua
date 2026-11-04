@@ -106,7 +106,7 @@ return {
 			},
 		},
 		config = function()
-			require("livepreview.config").set({ address = "127.0.0.1", dynamic_root = false })
+			require("livepreview.config").set({ address = "127.0.0.1", dynamic_root = false, browser = "open -a Safari" })
 
 			-- Confine directory hosting to the webroot (including symlink targets).
 			local server = require("livepreview.server").Server
