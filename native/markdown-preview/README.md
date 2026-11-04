@@ -51,6 +51,26 @@ mapping. No working-directory change is made.
 
 ## Configuration
 
+At launch, the preview captures Neovim's resolved highlight colors and `background`
+setting, rather than following macOS's theme. The window, headings, links, code,
+quotes, table borders, and selection use that palette (including linked highlight
+groups). Transparent `Normal` backgrounds fall back to a light/dark canvas.
+Close and reopen the preview to pick up a changed colorscheme.
+
+The article is centered in a maximum 680-point reading column, with responsive
+side gutters (at least 24 points) and 48-point top/bottom breathing room. Body
+text uses Apple's native New York serif at 18 pt with 30-point leading and
+24-point paragraph gaps. SF headings use a 40/30/24/20-point hierarchy, tighter
+leading, and more space above sections than below. These proportions are informed
+by [Tailwind Typography's web prose styles](https://github.com/tailwindlabs/tailwindcss-typography/blob/main/src/styles.js),
+not a browser or CSS dependency.
+
+SF Mono code has padded shaded blocks and 24-point leading; quotes use an inset
+border and italic text. Tables use smaller sans-serif text, subtle row separators,
+alternating backgrounds, and Markdown column alignment. Images shrink to fit the
+reading column when the window narrows. No fonts or dependencies need installing.
+Fenced code uses the theme's foreground, not language-specific syntax highlighting.
+
 Optional settings in `init.lua`, before using the mapping:
 
 ```lua
@@ -103,7 +123,7 @@ There is no blur/material layer. Very low opacity naturally reduces contrast.
   blockquotes, plain fenced code, and wrapping native `NSTextTable` tables render
   as attributed text. Unhandled markup stays readable; literal HTML stays literal
   text, and diagram fences stay plain code. No syntax colors or diagram output.
-  Table alignment hints and exact GitHub layout are not reproduced. The native
+  Exact GitHub layout is not reproduced. The native
   document view grows with text and image layout so images below the first screen
   can be reached using the scrollbar.
 - Closing the preview exits its process. Further edits do not reopen it; press
@@ -124,6 +144,12 @@ cleans up a failed launch. Frames are newline-delimited UTF-8 JSON, limited to
 ```json
 {"source":"/absolute/doc.md","root":"/absolute","text":"# Unsaved text","opacity":0.96,"activate":true}
 ```
+
+Snapshots from Neovim also include `theme`, an object with `dark` (boolean) and
+`colors` (role-to-`#rrggbb` map). Roles are `background`, `foreground`, `heading1`
+through `heading6`, `link`, `code`, `codeBackground`, `quote`, `border`, and
+`selection`. The launch theme is retained through edits and local link navigation.
+Omitting `theme` preserves native system-color defaults for standalone IPC clients.
 
 `activate` selects/focuses a document for an explicit preview request. Live edits
 use `false` and do not focus the window. Replies report the source, root, byte

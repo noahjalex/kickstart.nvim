@@ -1,20 +1,41 @@
 import AppKit
 import Markdown
 
-/// A buffer snapshot; root stays fixed during link navigation and subsequent edits.
+/// Resolved Neovim highlight colors captured at launch; absent colors use native defaults.
+public struct PreviewTheme: Codable {
+    public let dark: Bool
+    public let colors: [String: String]
+
+    public init(dark: Bool = false, colors: [String: String] = [:]) {
+        self.dark = dark
+        self.colors = colors
+    }
+
+    public func color(_ name: String, fallback: NSColor) -> NSColor {
+        guard let hex = colors[name], hex.count == 7, hex.first == "#",
+              let rgb = UInt32(hex.dropFirst(), radix: 16) else { return fallback.withAlphaComponent(1) }
+        return NSColor(srgbRed: CGFloat((rgb >> 16) & 255) / 255,
+                       green: CGFloat((rgb >> 8) & 255) / 255,
+                       blue: CGFloat(rgb & 255) / 255, alpha: 1)
+    }
+}
+
+/// A buffer snapshot; root and launch theme stay fixed during link navigation and subsequent edits.
 public struct PreviewSnapshot: Codable {
     public let source: String
     public let root: String
     public let text: String
     public let opacity: Double
     public let activate: Bool
+    public let theme: PreviewTheme?
 
-    public init(source: String, root: String, text: String, opacity: Double = 0.96, activate: Bool = true) {
+    public init(source: String, root: String, text: String, opacity: Double = 0.96, activate: Bool = true, theme: PreviewTheme? = nil) {
         self.source = source
         self.root = root
         self.text = text
         self.opacity = opacity
         self.activate = activate
+        self.theme = theme
     }
 }
 
@@ -62,14 +83,24 @@ public enum PreviewError: LocalizedError {
 /// Renders swift-markdown into native attributed text; unknown nodes fall back to readable Markdown.
 public struct MarkdownRenderer {
     public let paths: PreviewPaths
-    public init(paths: PreviewPaths) { self.paths = paths }
+    public let theme: PreviewTheme
+    public init(paths: PreviewPaths, theme: PreviewTheme = PreviewTheme()) {
+        self.paths = paths
+        self.theme = theme
+    }
+
+    private var bodyFont: NSFont {
+        let font = NSFont.systemFont(ofSize: 18)
+        return font.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: 18) } ?? font
+    }
 
     public func render(_ text: String) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.paragraphSpacing = 8
-        paragraph.lineSpacing = 3
+        // Article proportions follow web prose: 18 pt type, 30 pt leading, 24 pt paragraph gaps.
+        paragraph.paragraphSpacing = 24
+        paragraph.minimumLineHeight = 30
         return renderNode(Document(parsing: text), attributes: [
-            .font: NSFont.systemFont(ofSize: 16), .foregroundColor: NSColor.labelColor.withAlphaComponent(1),
+            .font: bodyFont, .foregroundColor: theme.color("foreground", fallback: .labelColor),
             .paragraphStyle: paragraph,
         ])
     }
@@ -92,21 +123,42 @@ public struct MarkdownRenderer {
         case is SoftBreak: append(" ")
         case is LineBreak: append("\n")
         case let heading as Heading:
-            attrs[.font] = NSFont.boldSystemFont(ofSize: [30.0, 25, 21, 19, 17, 16][min(5, max(0, heading.level - 1))])
+            let level = min(5, max(0, heading.level - 1))
+            let size = [40.0, 30, 24, 20, 18, 18][level]
+            attrs[.font] = NSFont.systemFont(ofSize: size, weight: .semibold)
+            attrs[.kern] = -0.4
+            attrs[.foregroundColor] = theme.color("heading\(heading.level)", fallback: .labelColor)
+            let style = paragraphStyle()
+            style.minimumLineHeight = size * 1.2
+            style.paragraphSpacingBefore = heading.indexInParent == 0 ? 0 : [32.0, 32, 24, 20, 16, 16][level]
+            style.paragraphSpacing = [24.0, 16, 12, 8, 8, 8][level]
+            attrs[.paragraphStyle] = style
             children(); append("\n")
         case is Strong: fontTrait(.boldFontMask); children()
         case is Emphasis: fontTrait(.italicFontMask); children()
         case is Strikethrough: attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue; children()
         case let code as InlineCode:
-            attrs[.font] = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
+            attrs[.font] = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+            attrs[.foregroundColor] = theme.color("code", fallback: .systemPink)
+            attrs[.backgroundColor] = theme.color("codeBackground", fallback: .controlBackgroundColor)
             append(code.code)
         case let code as CodeBlock:
-            attrs[.font] = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
-            let style = paragraphStyle(); style.headIndent += 12; style.firstLineHeadIndent = style.headIndent
+            attrs[.font] = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+            attrs[.foregroundColor] = theme.color("foreground", fallback: .labelColor)
+            let block = NSTextBlock()
+            // TextKit otherwise gives a standalone block zero content width, wrapping every character.
+            block.setContentWidth(100, type: .percentageValueType)
+            block.backgroundColor = theme.color("codeBackground", fallback: .controlBackgroundColor)
+            block.setWidth(16, type: .absoluteValueType, for: .padding)
+            block.setWidth(8, type: .absoluteValueType, for: .margin)
+            let style = paragraphStyle()
+            style.minimumLineHeight = 24; style.lineSpacing = 0; style.paragraphSpacing = 0
+            style.textBlocks += [block]
             attrs[.paragraphStyle] = style
             append(code.code); if !code.code.hasSuffix("\n") { append("\n") }
         case let link as Markdown.Link:
             attrs[.link] = link.destination
+            attrs[.foregroundColor] = theme.color("link", fallback: .linkColor)
             children()
         case let image as Markdown.Image:
             let alt = image.plainText
@@ -117,18 +169,29 @@ public struct MarkdownRenderer {
                 let attachment = NSTextAttachment()
                 attachment.image = nativeImage
                 attachment.bounds = NSRect(x: 0, y: 0, width: nativeImage.size.width * scale, height: nativeImage.size.height * scale)
-                output.append(NSAttributedString(attachment: attachment))
+                let imageText = NSMutableAttributedString(attributedString: NSAttributedString(attachment: attachment))
+                imageText.addAttributes(attrs, range: NSRange(location: 0, length: imageText.length))
+                output.append(imageText)
             } else {
                 append("[Image: \(alt) — \(image.source ?? "missing source")]")
             }
         case is BlockQuote:
-            let style = paragraphStyle(); style.headIndent += 20; style.firstLineHeadIndent = style.headIndent
+            let foreground = theme.color("foreground", fallback: .labelColor)
+            attrs[.foregroundColor] = theme.color("quote", fallback: .secondaryLabelColor).blended(withFraction: 0.6, of: foreground) ?? foreground
+            fontTrait(.italicFontMask)
+            let block = NSTextBlock()
+            block.setContentWidth(100, type: .percentageValueType)
+            block.setWidth(3, type: .absoluteValueType, for: .border, edge: .minX)
+            block.setBorderColor(theme.color("border", fallback: .separatorColor))
+            block.setWidth(18, type: .absoluteValueType, for: .padding, edge: .minX)
+            let style = paragraphStyle(); style.textBlocks += [block]
             attrs[.paragraphStyle] = style
-            append("▎ "); children()
+            children()
         case is OrderedList, is UnorderedList:
             let start = (node as? OrderedList)?.startIndex ?? 1
             for (index, item) in node.children.enumerated() {
-                let style = paragraphStyle(); style.firstLineHeadIndent = style.headIndent; style.headIndent += 24
+                let style = paragraphStyle(); style.firstLineHeadIndent = style.headIndent; style.headIndent += 28
+                style.paragraphSpacing = index == node.childCount - 1 ? 24 : 6
                 var itemAttrs = attrs; itemAttrs[.paragraphStyle] = style
                 let checkbox = (item as? ListItem)?.checkbox
                 let marker = checkbox.map { $0 == .checked ? "☑ " : "☐ " }
@@ -140,24 +203,49 @@ public struct MarkdownRenderer {
             let nativeTable = NSTextTable()
             nativeTable.numberOfColumns = max(1, table.head.childCount)
             nativeTable.collapsesBorders = true
+            nativeTable.setContentWidth(100, type: .percentageValueType)
             let rows = [Array(table.head.cells)] + table.body.rows.map { Array($0.cells) }
             for (rowIndex, row) in rows.enumerated() {
                 for (column, cell) in row.enumerated() {
                     let block = NSTextTableBlock(table: nativeTable, startingRow: rowIndex, rowSpan: 1, startingColumn: column, columnSpan: 1)
-                    block.setWidth(6, type: .absoluteValueType, for: .padding)
-                    block.setWidth(0.5, type: .absoluteValueType, for: .border)
-                    block.setBorderColor(.separatorColor)
+                    block.setWidth(10, type: .absoluteValueType, for: .padding)
+                    block.setWidth(0.5, type: .absoluteValueType, for: .border, edge: .minY)
+                    block.setBorderColor(theme.color("border", fallback: .separatorColor))
+                    if rowIndex == 0 || rowIndex % 2 == 0 {
+                        block.backgroundColor = theme.color("codeBackground", fallback: .controlBackgroundColor)
+                    }
                     let style = paragraphStyle(); style.textBlocks = [block]
+                    style.minimumLineHeight = 24; style.paragraphSpacing = 0
+                    let alignment = column < table.columnAlignments.count ? table.columnAlignments[column] : nil
+                    switch alignment {
+                    case .center: style.alignment = .center
+                    case .right: style.alignment = .right
+                    default: style.alignment = .left
+                    }
                     var cellAttrs = attrs; cellAttrs[.paragraphStyle] = style
-                    if rowIndex == 0 { cellAttrs[.font] = NSFont.boldSystemFont(ofSize: 16) }
+                    cellAttrs[.font] = NSFont.systemFont(ofSize: 15, weight: rowIndex == 0 ? .semibold : .regular)
                     output.append(renderNode(cell, attributes: cellAttrs))
                     output.append(NSAttributedString(string: "\n", attributes: cellAttrs))
                 }
             }
             append("\n")
-        case is Paragraph: children(); append("\n")
+        case is Paragraph:
+            if node.childCount == 1, node.child(at: 0) is Markdown.Image {
+                let style = paragraphStyle(); style.alignment = .center
+                attrs[.paragraphStyle] = style
+            }
+            children(); append("\n")
         case is Document, is ListItem, is Table.Cell: children()
-        case is ThematicBreak: append("────────────\n")
+        case is ThematicBreak:
+            let block = NSTextBlock()
+            block.setContentWidth(100, type: .percentageValueType)
+            block.setWidth(0.5, type: .absoluteValueType, for: .border, edge: .minY)
+            block.setBorderColor(theme.color("border", fallback: .separatorColor))
+            let style = paragraphStyle(); style.textBlocks = [block]
+            style.minimumLineHeight = 1; style.paragraphSpacingBefore = 24; style.paragraphSpacing = 24
+            attrs[.font] = NSFont.systemFont(ofSize: 1)
+            attrs[.paragraphStyle] = style
+            append("\u{200b}\n")
         case let html as HTMLBlock: append(html.rawHTML + "\n")
         case let html as InlineHTML: append(html.rawHTML)
         default:

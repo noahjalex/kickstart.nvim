@@ -47,6 +47,19 @@ local function run()
   render_mapping()
   wait_for(function() return latest() and latest().rendered:find('Unsaved launch') end, 'initial unsaved snapshot not displayed')
   local window, pid = latest().window, latest().pid
+  local normal = vim.api.nvim_get_hl(0, { name = 'Normal', link = false })
+  local dark = vim.o.background == 'dark'
+  local foreground = normal.fg or (dark and 0xc0caf5 or 0x24283b)
+  local background = normal.bg or (dark and 0x1a1b26 or 0xffffff)
+  assert(latest().theme.foreground == string.format('#%06x', foreground), 'Neovim foreground not inherited')
+  assert(latest().theme.background == string.format('#%06x', background), 'Neovim background not inherited')
+  assert(latest().darkAppearance == (vim.o.background == 'dark'), 'native appearance does not match Neovim')
+  for index, shift in ipairs { 16, 8, 0 } do
+    local expected = math.floor(background / 2 ^ shift) % 256 / 255
+    assert(math.abs(latest().backgroundRGB[index] - expected) < 0.001, 'window background does not match Neovim')
+  end
+  local launch_theme = vim.deepcopy(latest().theme)
+  vim.api.nvim_set_hl(0, 'Normal', { fg = '#112233', bg = '#fafafa' })
   assert(latest().windows == 1)
   assert(math.abs(latest().backgroundAlpha - 0.65) < 0.01 and latest().windowAlpha == 1)
   assert(vim.fn.getcwd() == cwd, 'preview changed editor working directory')
@@ -55,6 +68,8 @@ local function run()
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { '# Edited without saving', '', '[outside](../outside.md)' })
   wait_for(function() return latest().rendered:find('Edited without saving') end, 'live edit not received')
   assert(latest().window == window and latest().pid == pid)
+  assert(vim.deep_equal(latest().theme, launch_theme), 'editing changed the launch theme')
+  vim.api.nvim_set_hl(0, 'Normal', normal)
   assert(latest().root == directory, 'editing widened the security boundary')
   assert(vim.fn.readfile(first)[1] == '# Saved first', 'preview wrote document edits')
 

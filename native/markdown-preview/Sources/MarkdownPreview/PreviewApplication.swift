@@ -32,6 +32,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
 
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 760),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window.minSize = NSSize(width: 360, height: 300)
         window.title = "Markdown Preview"
         window.delegate = self
         window.isReleasedWhenClosed = false
@@ -48,6 +49,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
         let layout = NSLayoutManager(); storage.addLayoutManager(layout)
         let container = NSTextContainer(size: NSSize(width: 800, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
+        container.lineFragmentPadding = 0
         layout.addTextContainer(container)
         textView = NSTextView(frame: scroll.bounds, textContainer: container)
         textView.isEditable = false
@@ -56,7 +58,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
         textView.isVerticallyResizable = true
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = [.width]
-        textView.textContainerInset = NSSize(width: 24, height: 24)
+        textView.textContainerInset = NSSize(width: 48, height: 48)
         textView.delegate = self
         textView.linkTextAttributes = [.foregroundColor: NSColor.linkColor.withAlphaComponent(1),
                                        .underlineStyle: NSUnderlineStyle.single.rawValue]
@@ -66,21 +68,50 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
         DispatchQueue.global(qos: .userInitiated).async { self.readSnapshots() }
     }
 
+    private func layoutArticle() {
+        guard let textView, let scroll = textView.enclosingScrollView else { return }
+        let width = scroll.contentSize.width
+        // A web-style reading measure, centered on wide windows with mobile-sized gutters on narrow ones.
+        let gutter = max(24, (width - 680) / 2)
+        textView.setFrameSize(NSSize(width: width, height: textView.frame.height))
+        textView.textContainerInset = NSSize(width: gutter, height: 48)
+        let imageWidth = max(1, min(640, width - 2 * gutter))
+        let storage = textView.textStorage!
+        storage.beginEditing()
+        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
+            guard let attachment = value as? NSTextAttachment, let image = attachment.image else { return }
+            let scale = min(1, imageWidth / image.size.width, 480 / image.size.height)
+            attachment.bounds = NSRect(x: 0, y: 0, width: image.size.width * scale, height: image.size.height * scale)
+        }
+        storage.endEditing()
+        textView.layoutManager!.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
+        textView.sizeToFit() // Grow vertically, never stretch the article's reading width.
+    }
+
     @objc private func changeOpacity(_ sender: NSMenuItem) {
         chosenOpacity = Double(sender.tag) / 100
-        window.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(CGFloat(chosenOpacity!))
+        let theme = current?.theme ?? PreviewTheme()
+        window.backgroundColor = theme.color("background", fallback: .windowBackgroundColor).withAlphaComponent(CGFloat(chosenOpacity!))
     }
 
     private func displaySnapshot(_ snapshot: PreviewSnapshot) throws {
         let paths = try PreviewPaths(source: snapshot.source, root: snapshot.root)
         let scrollOrigin = textView.enclosingScrollView!.contentView.bounds.origin
         let sameFile = current?.source == snapshot.source
-        textView.textStorage!.setAttributedString(MarkdownRenderer(paths: paths).render(snapshot.text))
-        textView.sizeToFit() // Keep the document view as tall as its native text/image layout.
+        let theme = snapshot.theme ?? PreviewTheme()
+        if let launchTheme = snapshot.theme {
+            window.appearance = NSAppearance(named: launchTheme.dark ? .darkAqua : .aqua)
+        }
+        textView.linkTextAttributes = [.foregroundColor: theme.color("link", fallback: .linkColor),
+                                       .underlineStyle: NSUnderlineStyle.single.rawValue]
+        textView.selectedTextAttributes = [.backgroundColor: theme.color("selection", fallback: .selectedTextBackgroundColor),
+                                           .foregroundColor: theme.color("foreground", fallback: .textColor)]
+        textView.textStorage!.setAttributedString(MarkdownRenderer(paths: paths, theme: theme).render(snapshot.text))
+        layoutArticle()
         current = snapshot
         window.title = paths.source.lastPathComponent + " — Markdown Preview"
         window.representedURL = paths.source
-        window.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(CGFloat(min(1, max(0, chosenOpacity ?? snapshot.opacity))))
+        window.backgroundColor = theme.color("background", fallback: .windowBackgroundColor).withAlphaComponent(CGFloat(min(1, max(0, chosenOpacity ?? snapshot.opacity))))
         if sameFile {
             textView.enclosingScrollView!.contentView.scroll(to: scrollOrigin)
         } else {
@@ -107,7 +138,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
             }
             let cached = snapshots[target.path]
             let text = try cached?.text ?? String(contentsOf: target, encoding: .utf8)
-            let next = PreviewSnapshot(source: target.path, root: snapshot.root, text: text, opacity: snapshot.opacity)
+            let next = PreviewSnapshot(source: target.path, root: snapshot.root, text: text, opacity: snapshot.opacity, theme: snapshot.theme)
             try displaySnapshot(next)
             // Fragment-only links remain in this document. Native text stays readable if no heading matches.
             if let fragment = URLComponents(string: destination)?.fragment {
@@ -131,16 +162,23 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
             let paths = try PreviewPaths(source: snapshot.source, root: snapshot.root)
             // Foundation and libuv may spell the same file as /tmp/... and /private/tmp/....
             let normalized = PreviewSnapshot(source: paths.source.path, root: paths.root.path, text: snapshot.text,
-                                             opacity: snapshot.opacity, activate: snapshot.activate)
+                                             opacity: snapshot.opacity, activate: snapshot.activate, theme: snapshot.theme)
             snapshots[paths.source.path] = normalized
             if snapshot.activate || current?.source == normalized.source { try displaySnapshot(normalized) }
             var reply: [String: Any] = ["source": snapshot.source, "root": snapshot.root, "bytes": snapshot.text.utf8.count,
                                         "pid": getpid(), "window": window.windowNumber, "opacity": snapshot.opacity]
             if inspect {
                 reply["rendered"] = textView.string
+                let background = window.backgroundColor.usingColorSpace(.sRGB)!
+                reply["backgroundRGB"] = [background.redComponent, background.greenComponent, background.blueComponent]
+                reply["darkAppearance"] = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+                reply["theme"] = current?.theme?.colors
                 reply["windowAlpha"] = window.alphaValue
                 reply["backgroundAlpha"] = window.backgroundColor.alphaComponent
                 reply["windows"] = NSApp.windows.filter { $0.isVisible && $0 === window }.count
+                reply["articleWidth"] = textView.textContainer!.containerSize.width
+                reply["articleGutter"] = textView.textContainerInset.width
+                reply["viewportWidth"] = textView.enclosingScrollView!.contentView.bounds.width
                 reply["contentHeight"] = textView.frame.height
                 reply["viewportHeight"] = textView.enclosingScrollView!.contentView.bounds.height
                 reply["attachments"] = textView.textStorage!.string.filter { $0 == "\u{fffc}" }.count
@@ -203,7 +241,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     private func terminatePreview() { DispatchQueue.main.async { NSApp.terminate(nil) } }
-    func windowDidResize(_ notification: Notification) { textView?.sizeToFit() }
+    func windowDidResize(_ notification: Notification) { layoutArticle() }
     func windowWillClose(_ notification: Notification) { NSApp.terminate(nil) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ notification: Notification) {

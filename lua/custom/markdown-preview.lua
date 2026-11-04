@@ -54,6 +54,35 @@ local function stop_preview(state)
   -- Closing the socket makes the native app exit; no polling process or helper to reap.
 end
 
+-- Capture resolved highlight colors once per native app launch, including linked groups.
+local function markdown_preview_theme()
+  local dark = vim.o.background == 'dark'
+  local function color(groups, field, fallback)
+    for _, group in ipairs(groups) do
+      local hl = vim.api.nvim_get_hl(0, { name = group, link = false, create = false })
+      local value = hl[hl.reverse and (field == 'fg' and 'bg' or 'fg') or field]
+      if value then return string.format('#%06x', value) end
+    end
+    return fallback
+  end
+  local foreground = color({ 'Normal' }, 'fg', dark and '#c0caf5' or '#24283b')
+  local background = color({ 'Normal' }, 'bg', dark and '#1a1b26' or '#ffffff')
+  local colors = {
+    foreground = foreground,
+    background = background,
+    link = color({ '@markup.link.url', 'Underlined', 'Identifier' }, 'fg', foreground),
+    code = color({ '@markup.raw', 'String' }, 'fg', foreground),
+    codeBackground = color({ 'NormalFloat', 'CursorLine' }, 'bg', background),
+    quote = color({ '@markup.quote', 'Comment' }, 'fg', foreground),
+    border = color({ 'FloatBorder', 'Comment' }, 'fg', foreground),
+    selection = color({ 'Visual' }, 'bg', background),
+  }
+  for level = 1, 6 do
+    colors['heading' .. level] = color({ '@markup.heading.' .. level, 'Title' }, 'fg', foreground)
+  end
+  return { dark = dark, colors = colors }
+end
+
 local function send_snapshot(state, buffer, activate)
   if session ~= state or not state.client or not vim.api.nvim_buf_is_valid(buffer) then
     return
@@ -73,6 +102,7 @@ local function send_snapshot(state, buffer, activate)
     text = text,
     opacity = math.max(0, math.min(1, tonumber(vim.g.markdown_preview_opacity) or 0.96)),
     activate = activate,
+    theme = state.theme,
   } .. '\n'
   if #frame > 16 * 1024 * 1024 then
     warn('buffer exceeds the 16 MiB IPC limit')
@@ -153,7 +183,7 @@ function M.start_markdown_preview()
       return
     end
     uv.fs_chmod(directory, 448) -- 0700; the socket is never exposed through HTTP.
-    local state = { directory = directory, socket = directory .. '/editor.sock', server = uv.new_pipe(false), timer = uv.new_timer(), documents = {}, dirty = {}, pending = {} }
+    local state = { directory = directory, socket = directory .. '/editor.sock', server = uv.new_pipe(false), timer = uv.new_timer(), documents = {}, dirty = {}, pending = {}, theme = markdown_preview_theme() }
     session = state
     local bound, bind_error = state.server:bind(state.socket)
     if not bound then

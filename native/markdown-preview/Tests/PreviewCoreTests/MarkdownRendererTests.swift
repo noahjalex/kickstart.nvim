@@ -66,7 +66,7 @@ final class MarkdownRendererTests: XCTestCase {
         XCTAssertTrue(both.contains(.boldFontMask) && both.contains(.italicFontMask))
         XCTAssertEqual(attribute(.link, at: "a link") as? String, "next.md")
         XCTAssertEqual((attribute(.paragraphStyle, at: "Alice") as! NSParagraphStyle).textBlocks.count, 1)
-        XCTAssertGreaterThan((attribute(.paragraphStyle, at: "Quoted words") as! NSParagraphStyle).headIndent, 0)
+        XCTAssertEqual((attribute(.paragraphStyle, at: "Quoted words") as! NSParagraphStyle).textBlocks.count, 1)
         XCTAssertTrue((attribute(.font, at: "let code") as! NSFont).isFixedPitch)
         rendered.enumerateAttribute(.foregroundColor, in: NSRange(location: 0, length: rendered.length)) { value, _, _ in
             XCTAssertEqual((value as! NSColor).alphaComponent, 1, "Text must stay opaque")
@@ -78,6 +78,79 @@ final class MarkdownRendererTests: XCTestCase {
         layout.addTextContainer(container); layout.ensureLayout(for: container)
         XCTAssertGreaterThan(layout.usedRect(for: container).height, 300)
         XCTAssertEqual(layout.numberOfGlyphs, rendered.length)
+    }
+
+    func testCodeBlockUsesAvailableWidth() throws {
+        let paths = try PreviewPaths(source: source.path, root: directory.path)
+        let code = "paymentDetails: string[]"
+        let rendered = MarkdownRenderer(paths: paths).render("```typescript\n\(code)\n```\n\nFollowing paragraph.")
+        let storage = NSTextStorage(attributedString: rendered)
+        let layout = NSLayoutManager(); storage.addLayoutManager(layout)
+        let container = NSTextContainer(containerSize: NSSize(width: 700, height: CGFloat.greatestFiniteMagnitude))
+        layout.addTextContainer(container)
+        // Relayout at narrow and wide sizes, as when resizing the preview window.
+        for width in [700.0, 320.0, 850.0] {
+            container.containerSize.width = width
+            layout.ensureLayout(for: container)
+            var line = NSRange()
+            let rect = layout.lineFragmentUsedRect(forGlyphAt: 0, effectiveRange: &line)
+            XCTAssertGreaterThanOrEqual(line.length, code.utf16.count, "Code collapsed at width \(width): \(rect)")
+            XCTAssertLessThan(layout.usedRect(for: container).height, 200, "Short code must not turn into a tall column")
+        }
+    }
+
+    func testNeovimThemeAndTypography() throws {
+        let theme = PreviewTheme(dark: true, colors: [
+            "foreground": "#c0caf5", "background": "#1a1b26", "heading1": "#7aa2f7",
+            "link": "#7dcfff", "code": "#9ece6a", "codeBackground": "#16161e",
+            "quote": "#565f89", "border": "#414868",
+        ])
+        let paths = try PreviewPaths(source: source.path, root: directory.path)
+        let rendered = MarkdownRenderer(paths: paths, theme: theme).render("""
+        # Heading
+
+        Body with `inline` and [link](next.md).
+
+        > Quote
+
+        ```swift
+        let value = 1
+        ```
+
+        | Name | Value |
+        | :--- | ---: |
+        | Cell | Data |
+        """)
+        func attribute(_ key: NSAttributedString.Key, at text: String) -> Any? {
+            rendered.attribute(key, at: (rendered.string as NSString).range(of: text).location, effectiveRange: nil)
+        }
+        for (text, role) in [("Heading", "heading1"), ("Body", "foreground"), ("inline", "code"),
+                             ("link", "link"), ("let value", "foreground")] {
+            XCTAssertEqual(attribute(.foregroundColor, at: text) as? NSColor, theme.color(role, fallback: .red))
+        }
+        XCTAssertEqual((attribute(.font, at: "Body") as! NSFont).pointSize, 18)
+        XCTAssertEqual((attribute(.paragraphStyle, at: "Body") as! NSParagraphStyle).minimumLineHeight, 30)
+        XCTAssertEqual((attribute(.paragraphStyle, at: "Body") as! NSParagraphStyle).paragraphSpacing, 24)
+        XCTAssertEqual((attribute(.font, at: "Heading") as! NSFont).pointSize, 40)
+        XCTAssertEqual((attribute(.paragraphStyle, at: "Heading") as! NSParagraphStyle).paragraphSpacingBefore, 0)
+        XCTAssertTrue(NSFontManager.shared.traits(of: attribute(.font, at: "Quote") as! NSFont).contains(.italicFontMask))
+        XCTAssertEqual((attribute(.font, at: "Name") as! NSFont).pointSize, 15)
+        XCTAssertEqual((attribute(.paragraphStyle, at: "Value") as! NSParagraphStyle).alignment, .right)
+        XCTAssertEqual((attribute(.paragraphStyle, at: "Name") as! NSParagraphStyle).alignment, .left)
+        XCTAssertNotEqual((attribute(.font, at: "Body") as! NSFont).familyName, NSFont.systemFont(ofSize: 18).familyName)
+        XCTAssertTrue((attribute(.font, at: "inline") as! NSFont).isFixedPitch)
+        XCTAssertEqual(attribute(.backgroundColor, at: "inline") as? NSColor, theme.color("codeBackground", fallback: .red))
+        let codeBlock = (attribute(.paragraphStyle, at: "let value") as! NSParagraphStyle).textBlocks.first!
+        XCTAssertEqual(codeBlock.backgroundColor, theme.color("codeBackground", fallback: .red))
+        let tableBlock = (attribute(.paragraphStyle, at: "Name") as! NSParagraphStyle).textBlocks.first!
+        XCTAssertEqual(tableBlock.backgroundColor, theme.color("codeBackground", fallback: .red))
+        let snapshot = PreviewSnapshot(source: source.path, root: directory.path, text: "test", theme: theme)
+        let decoded = try JSONDecoder().decode(PreviewSnapshot.self, from: JSONEncoder().encode(snapshot))
+        XCTAssertEqual(decoded.theme?.colors, theme.colors)
+        XCTAssertEqual(decoded.theme?.dark, true)
+        for invalid in ["oops", "#gggggg", "#12345678"] {
+            XCTAssertEqual(PreviewTheme(colors: ["code": invalid]).color("code", fallback: .red), .red)
+        }
     }
 
     func testLocalResourceBoundaryAndImages() throws {
@@ -104,6 +177,8 @@ final class MarkdownRendererTests: XCTestCase {
         XCTAssertThrowsError(try PreviewPaths(source: escape.path, root: directory.path))
         let rendered = MarkdownRenderer(paths: paths).render("![red](sample.tiff) ![secret](escape.md) ![remote](https://example.com/a.png)")
         XCTAssertNotNil(rendered.attribute(.attachment, at: 0, effectiveRange: nil))
+        let standalone = MarkdownRenderer(paths: paths).render("![red](sample.tiff)")
+        XCTAssertEqual((standalone.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as! NSParagraphStyle).alignment, .center)
         XCTAssertTrue(rendered.string.contains("[Image: secret — escape.md]"))
         XCTAssertTrue(rendered.string.contains("[Image: remote — https://example.com/a.png]"))
     }

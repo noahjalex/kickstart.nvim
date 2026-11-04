@@ -67,6 +67,16 @@ def verify_native_ipc(directory):
         assert first["windows"] == 1 and first["windowAlpha"] == 1
         assert abs(first["backgroundAlpha"] - 0.65) < 0.01
         window = first["window"]
+        assert abs(first["articleWidth"] - 680) < 1, first
+        assert abs(first["articleGutter"] * 2 + first["articleWidth"] - first["viewportWidth"]) < 1, first
+        for dark, background in [(True, "#1a1b26"), (False, "#fafafa")]:
+            themed = snapshot(directory, "# Theme colors\n\nReadable body and `code`.")
+            themed["theme"] = dict(dark=dark, colors=dict(background=background, foreground="#7aa2f7"))
+            reply = app.update(themed)
+            assert reply["darkAppearance"] == dark
+            expected = [int(background[offset:offset + 2], 16) / 255 for offset in (1, 3, 5)]
+            assert all(abs(actual - value) < 0.001 for actual, value in zip(reply["backgroundRGB"], expected))
+            assert abs(reply["backgroundAlpha"] - 0.65) < 0.01
         # Coalesced frames, malformed frames, and in-process document reuse.
         app.connection.sendall(b'{"bad":true}\n' + json.dumps(snapshot(directory, "# Live edit")).encode() + b"\n")
         assert "error" in app.receive()
