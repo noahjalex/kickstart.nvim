@@ -153,6 +153,86 @@ final class MarkdownRendererTests: XCTestCase {
         }
     }
 
+    func testConfiguredFontsRoundedTablesAndSyntax() throws {
+        let style = try JSONDecoder().decode(PreviewStyle.self, from: Data("""
+        {"body":{"family":"Menlo","size":16},"heading":{"family":"Menlo","size":32,"weight":"bold"},
+         "code":{"family":"Menlo","size":13},"table":{"family":"Menlo","size":14},
+         "lineHeight":28,"paragraphSpacing":18,"articleWidth":800,"cornerRadius":12}
+        """.utf8))
+        let highlights = try JSONDecoder().decode([PreviewCodeHighlight].self, from: Data("""
+        [{"language":"lua","code":"local 日本語 = 42\\n","spans":[
+          {"start":0,"end":5,"color":"#ff0000","bold":true},
+          {"start":6,"end":15,"color":"#00ff00","italic":true},
+          {"start":18,"end":20,"color":"#0000ff"},
+          {"start":-1,"end":200},{"start":7,"end":8},{"start":0,"end":99999}]}]
+        """.utf8))
+        let paths = try PreviewPaths(source: source.path, root: directory.path)
+        let rendered = MarkdownRenderer(paths: paths, style: style, highlights: highlights).render("""
+        # Heading
+
+        ## Subheading
+
+        Body with **bold** and *italic*.
+
+        ```lua
+        local 日本語 = 42
+        ```
+
+        | Name | Value |
+        | :--- | ---: |
+        | Cell | Data |
+        | Last | Row |
+        """)
+        func attribute(_ key: NSAttributedString.Key, at text: String) -> Any? {
+            rendered.attribute(key, at: (rendered.string as NSString).range(of: text).location, effectiveRange: nil)
+        }
+        for (text, size) in [("Body", 16.0), ("Heading", 32), ("Subheading", 24), ("local", 13), ("Cell", 14)] {
+            let font = attribute(.font, at: text) as! NSFont
+            XCTAssertEqual(font.pointSize, size)
+            XCTAssertTrue(font.isFixedPitch)
+        }
+        XCTAssertTrue(NSFontManager.shared.traits(of: attribute(.font, at: "Heading") as! NSFont).contains(.boldFontMask))
+        XCTAssertEqual(style.readingWidth, 800)
+        XCTAssertEqual((attribute(.paragraphStyle, at: "Body") as! NSParagraphStyle).minimumLineHeight, 28)
+        XCTAssertEqual((attribute(.paragraphStyle, at: "Body") as! NSParagraphStyle).paragraphSpacing, 18)
+        for (text, hex) in [("local", "#ff0000"), ("日本語", "#00ff00"), ("42", "#0000ff")] {
+            XCTAssertEqual(attribute(.foregroundColor, at: text) as? NSColor, PreviewTheme(colors: ["test": hex]).color("test", fallback: .black))
+        }
+        XCTAssertTrue(NSFontManager.shared.traits(of: attribute(.font, at: "local") as! NSFont).contains(.boldFontMask))
+        XCTAssertTrue(NSFontManager.shared.traits(of: attribute(.font, at: "日本語") as! NSFont).contains(.italicFontMask))
+        let codeBlock = (attribute(.paragraphStyle, at: "local") as! NSParagraphStyle).textBlocks.first as! RoundedCodeBlock
+        XCTAssertEqual(codeBlock.radius, 12)
+        let cell = (attribute(.paragraphStyle, at: "Name") as! NSParagraphStyle).textBlocks.first as! NSTextTableBlock
+        let table = cell.table as! RoundedPreviewTable
+        XCTAssertEqual(table.radius, 12)
+        XCTAssertEqual(table.rowCount, 3)
+        XCTAssertEqual(table.numberOfColumns, 2)
+
+        // Draw real AppKit text at multiple widths: exercise custom table/code painting, not just attributes.
+        let storage = NSTextStorage(attributedString: rendered)
+        let layout = NSLayoutManager(); storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 600, height: 10000))
+        container.lineFragmentPadding = 0
+        container.widthTracksTextView = true
+        layout.addTextContainer(container)
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 1200), textContainer: container)
+        view.textContainerInset = NSSize(width: 24, height: 24)
+        for width in [600.0, 320.0] {
+            view.setFrameSize(NSSize(width: width, height: 1200))
+            layout.ensureLayout(for: container)
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            XCTAssertGreaterThan(layout.usedRect(for: container).height, 200)
+            if width == 600, let png = bitmap.representation(using: .png, properties: [:]) {
+                try png.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("markdown-preview-styles.png"))
+            }
+        }
+        let invalid = try JSONDecoder().decode(PreviewStyle.self, from: Data("{\"articleWidth\":-1,\"body\":{\"size\":999,\"family\":\"Missing Font\"}}".utf8))
+        XCTAssertEqual(invalid.readingWidth, 680)
+        XCTAssertEqual(invalid.body?.font(fallback: NSFont.systemFont(ofSize: 18)).pointSize, 18)
+        XCTAssertThrowsError(try JSONDecoder().decode(PreviewStyle.self, from: Data("{\"body\":42}".utf8)))
+    }
+
     func testLocalResourceBoundaryAndImages() throws {
         let sibling = directory.deletingLastPathComponent().appendingPathComponent(directory.lastPathComponent + "-outside.md")
         try "secret".write(to: sibling, atomically: true, encoding: .utf8)

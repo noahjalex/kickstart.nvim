@@ -4,7 +4,8 @@
 
 A local, read-only macOS app using AppKit, `NSTextView`/TextKit 1, and Apple's
 [`swift-markdown`](https://github.com/swiftlang/swift-markdown). No web view,
-HTML rendering, JavaScript, HTTP server, syntax highlighter, or diagram engine.
+HTML rendering, JavaScript, HTTP server, bundled syntax highlighter, or diagram engine.
+Syntax colors come from the owning Neovim's Tree-sitter parsers.
 
 ## Build and install
 
@@ -57,19 +58,65 @@ quotes, table borders, and selection use that palette (including linked highligh
 groups). Transparent `Normal` backgrounds fall back to a light/dark canvas.
 Close and reopen the preview to pick up a changed colorscheme.
 
-The article is centered in a maximum 680-point reading column, with responsive
-side gutters (at least 24 points) and 48-point top/bottom breathing room. Body
-text uses Apple's native New York serif at 18 pt with 30-point leading and
-24-point paragraph gaps. SF headings use a 40/30/24/20-point hierarchy, tighter
-leading, and more space above sections than below. These proportions are informed
-by [Tailwind Typography's web prose styles](https://github.com/tailwindlabs/tailwindcss-typography/blob/main/src/styles.js),
-not a browser or CSS dependency.
+The article is centered in a configurable reading column, with responsive side
+gutters (at least 24 points) and 48-point top/bottom breathing room. Code has padded,
+rounded shaded panels with an outline; quotes have an inset border and italic text.
+Tables are fully enclosed grids with four rounded exterior corners, shaded headers,
+alternating rows, wrapping selectable text, and Markdown column alignment. Images
+shrink to fit when the window narrows. All painting and text layout use AppKit.
 
-SF Mono code has padded shaded blocks and 24-point leading; quotes use an inset
-border and italic text. Tables use smaller sans-serif text, subtle row separators,
-alternating backgrounds, and Markdown column alignment. Images shrink to fit the
-reading column when the window narrows. No fonts or dependencies need installing.
-Fenced code uses the theme's foreground, not language-specific syntax highlighting.
+Edit [`markdown-preview.json`](../../markdown-preview.json) in the Neovim config
+directory (`stdpath('config')`) to customize typography, then close and reopen the
+preview. If individually stowed files have not exposed that file yet, the launcher
+uses this checkout's copy instead. The checked-in file uses Helvetica Neue body/headings/table text and Menlo
+code; no fonts need installing. For a terminal-like look, set `body.family` to
+`Menlo`. A minimal configuration is:
+
+```json
+{
+  "body": { "family": "Menlo", "size": 16 },
+  "heading": { "family": "Helvetica Neue", "size": 36, "weight": "bold" },
+  "code": { "family": "Menlo", "size": 14 },
+  "table": { "family": "Helvetica Neue", "size": 15 },
+  "articleWidth": 680,
+  "lineHeight": 28,
+  "paragraphSpacing": 20,
+  "cornerRadius": 10
+}
+```
+
+Each font accepts `family` (installed family or PostScript name), `size` in points,
+`weight` (`regular`, `medium`, `semibold`, `bold`), and `italic` (boolean). Heading
+size sets H1; lower headings retain their proportions. Sizes must be 8–96 pt;
+article width 320–1600; line height 12–120; paragraph spacing 0–120; radius 0–32.
+Out-of-range values and missing fonts use defaults. Omitted fields keep the native
+serif body/SF headings/SF Mono code defaults. A missing file is fine; malformed JSON
+shows an alert and uses defaults. `vim.g.markdown_preview_config` overrides the path;
+standalone clients can set `MARKDOWN_PREVIEW_CONFIG` (otherwise the app uses
+`$XDG_CONFIG_HOME/nvim/markdown-preview.json`, falling back to `~/.config/nvim`).
+
+### Tree-sitter syntax highlighting
+
+Fenced languages are resolved through `vim.treesitter.language.get_lang` (including
+aliases), then use the installed parser, highlight queries, nested language
+injections, and resolved `@capture.language` colors/bold/italic. UTF-8 captures are
+converted to native UTF-16 text ranges, so non-ASCII code stays correctly colored.
+List/quote container prefixes are removed before parsing the code. Unknown languages,
+diagrams, and missing parsers/queries remain plain code. There is no regex lexer,
+second parser installation, or automatic network fetch during preview.
+
+macOS/AppKit has no built-in general-purpose code syntax highlighter. Neovim already
+has the machinery, so the preview reuses it instead of adding a Swift Tree-sitter
+binding and duplicating grammars and themes. Install any additional parsers using
+this config's existing nvim-treesitter, for example:
+
+```vim
+:lua require('nvim-treesitter').install { 'python', 'javascript', 'typescript', 'tsx', 'swift' }
+```
+
+Reopen the preview or edit the buffer after installation. New local Markdown links
+request captures from the owning editor too; already-previewed documents retain
+their cached captures. Standalone IPC clients omit captures for plain code.
 
 Optional settings in `init.lua`, before using the mapping:
 
@@ -120,9 +167,9 @@ There is no blur/material layer. Very low opacity naturally reduces contrast.
   a 20 MiB encoded-file limit. Remote, rejected, missing, or unsupported images
   show their alt text and source instead of disappearing. No remote image fetches.
 - Headings, paragraphs, nested emphasis, links, nested/task/ordered lists,
-  blockquotes, plain fenced code, and wrapping native `NSTextTable` tables render
+  blockquotes, syntax-colored fenced code, and wrapping native `NSTextTable` tables render
   as attributed text. Unhandled markup stays readable; literal HTML stays literal
-  text, and diagram fences stay plain code. No syntax colors or diagram output.
+  text, and diagram fences stay plain code. No diagram output.
   Exact GitHub layout is not reproduced. The native
   document view grows with text and image layout so images below the first screen
   can be reached using the scrollbar.
@@ -150,6 +197,14 @@ Snapshots from Neovim also include `theme`, an object with `dark` (boolean) and
 through `heading6`, `link`, `code`, `codeBackground`, `quote`, `border`, and
 `selection`. The launch theme is retained through edits and local link navigation.
 Omitting `theme` preserves native system-color defaults for standalone IPC clients.
+Optional `highlights` is an array of `{code, language, spans}` entries; each span has
+UTF-8 byte offsets `start`/`end` and optional `color` (`#rrggbb`), `bold`, and `italic`.
+Entries match the exact normalized code text (including its final newline) and fence
+language. Invalid/out-of-bounds or split-codepoint ranges are ignored. Captures are
+ordered by Tree-sitter priority, with later captures winning. On uncached local-link
+navigation the app sends `{highlightRequest:true, source, root, text, opacity}`;
+Neovim returns the same snapshot with captures and `activate:false`. Ordinary update
+acknowledgements are unchanged.
 
 `activate` selects/focuses a document for an explicit preview request. Live edits
 use `false` and do not focus the window. Replies report the source, root, byte
@@ -176,7 +231,10 @@ python3 Tests/verify.py
 ```
 
 `swift test` checks representative output and font/paragraph attributes, performs
-actual native text layout, loads an image, and tests canonical path boundaries.
+actual native text layout and rounded-panel painting at multiple widths, checks
+custom fonts and Unicode syntax ranges, loads an image, and tests canonical path
+boundaries. The real-Neovim test checks Lua/Go parser captures, nested list/quote
+fences, unknown-language fallback, and capture transport to the app.
 `verify.py` launches the real release app and uses real Unix sockets: fragmented
 UTF-8, coalesced/malformed frames, rendering, source validation, symlink rejection,
 `/tmp` versus `/private/tmp` document identity, window reuse, opacity, a real

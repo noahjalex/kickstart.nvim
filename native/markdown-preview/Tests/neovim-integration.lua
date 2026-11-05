@@ -12,6 +12,8 @@ vim.api.nvim_create_autocmd('User', {
   callback = function(event) replies[#replies + 1] = event.data end,
 })
 vim.g.markdown_preview_opacity = 0.65
+vim.g.markdown_preview_config = directory .. '/preview-style.json'
+vim.fn.writefile({ '{"body":{"family":"Menlo","size":16},"articleWidth":720,"cornerRadius":12}' }, vim.g.markdown_preview_config)
 local function wait_for(predicate, message) assert(vim.wait(10000, predicate, 20), message) end
 local function render_mapping() vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(' rm', true, false, true), 'xt', false) end
 local function open_markdown(path)
@@ -21,6 +23,15 @@ local function open_markdown(path)
 end
 local function latest() return replies[#replies] end
 local function run()
+  local highlighted = preview.markdown_preview_code_highlights('```lua\nlocal x = "日本語"\n```\n\n```go\npackage main\n```\n\n```not_a_language\nuntouched\n```')
+  assert(#highlighted == 3 and #highlighted[1].spans > 0 and #highlighted[2].spans > 0, 'installed Lua/Go parsers did not highlight')
+  assert(#highlighted[3].spans == 0, 'unknown language must stay plain')
+  assert(highlighted[1].code == 'local x = "日本語"\n')
+  local nested = preview.markdown_preview_code_highlights('- list\n\n  ```lua\n  local x = 1\n  print(x)\n  ```\n\n> ```lua\n> local y = 2\n> ```')
+  assert(nested[1].code == 'local x = 1\nprint(x)\n', 'list prefixes leaked into code')
+  assert(nested[2].code == 'local y = 2\n', 'quote prefixes leaked into code')
+  local indented = preview.markdown_preview_code_highlights('  ```lua\n  local x = 1\n    print(x)\n  ```')
+  assert(indented[1].code == 'local x = 1\n  print(x)\n', 'fence indentation leaked into code')
   local sockets_before = vim.fn.glob '/tmp/nvim-markdown-*'
   vim.cmd.enew()
   vim.bo.filetype = 'markdown'
@@ -39,9 +50,11 @@ local function run()
   local first = directory .. '/first.md'
   open_markdown(first)
   local cwd = vim.fn.getcwd()
-  vim.api.nvim_buf_set_lines(0, 0, -1, false, { '# Unsaved launch', '', '**Native** preview 日本語' })
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { '# Unsaved launch', '', '**Native** preview 日本語', '', '```lua', 'local value = "日本語"', '```' })
   render_mapping()
   wait_for(function() return latest() and latest().rendered:find 'Unsaved launch' end, 'initial unsaved snapshot not displayed')
+  assert(latest().syntaxSpans > 0, 'Tree-sitter captures did not reach the native renderer')
+  assert(latest().bodyFont == 'Menlo' and latest().readingWidth == 720, 'configured font/reading width did not reach the app')
   local window, pid = latest().window, latest().pid
   local normal = vim.api.nvim_get_hl(0, { name = 'Normal', link = false })
   local dark = vim.o.background == 'dark'

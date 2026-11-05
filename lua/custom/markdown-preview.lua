@@ -75,6 +75,71 @@ local function markdown_preview_theme()
   return { dark = dark, colors = colors }
 end
 
+--- Highlight fenced code with installed Tree-sitter parsers, queries, injections, and resolved theme groups.
+function M.markdown_preview_code_highlights(text)
+  local highlights = {}
+  local markdown = vim.treesitter.get_string_parser(text, 'markdown')
+  local tree = markdown:parse()[1]
+  local fences = vim.treesitter.query.parse('markdown', '(fenced_code_block (info_string (language) @language) (code_fence_content) @code)')
+  for _, match in fences:iter_matches(tree:root(), text) do
+    local language = vim.treesitter.get_node_text(match[1][1], text)
+    local content = match[2][1]
+    local code = vim.treesitter.get_node_text(content, text)
+    -- Container prefixes belong to Markdown, not to the fenced language (lists and quotes).
+    local _, _, base = content:start()
+    local prefixes = {}
+    for child in content:iter_children() do
+      if child:type() == 'block_continuation' then
+        local _, _, first = child:start()
+        local _, _, last = child:end_()
+        prefixes[#prefixes + 1] = { first - base, last - base }
+      end
+    end
+    for i = #prefixes, 1, -1 do
+      code = code:sub(1, prefixes[i][1]) .. code:sub(prefixes[i][2] + 1)
+    end
+    local delimiter = vim.treesitter.get_node_text(content:parent():named_child(0), text)
+    local indent = #(delimiter:match '^ *')
+    code = ('\n' .. code):gsub('\n' .. string.rep(' ?', indent), '\n'):sub(2):gsub('\r\n', '\n')
+    if not code:match '\n$' then code = code .. '\n' end
+    local spans = {}
+    -- Missing parsers/queries are normal (e.g. mermaid); never substitute a different language.
+    pcall(function()
+      local lang = vim.treesitter.language.get_lang(language) or language
+      local parser = vim.treesitter.get_string_parser(code, lang)
+      parser:parse(true)
+      local order = 0
+      parser:for_each_tree(function(code_tree, language_tree)
+        local query = vim.treesitter.query.get(language_tree:lang(), 'highlights')
+        if not query then return end
+        for id, node, metadata in query:iter_captures(code_tree:root(), code) do
+          local capture = query.captures[id]
+          if capture ~= 'spell' and capture ~= 'nospell' and capture ~= 'none' then
+            local hl = vim.api.nvim_get_hl(0, { name = '@' .. capture .. '.' .. language_tree:lang(), link = false, create = false })
+            if not next(hl) then hl = vim.api.nvim_get_hl(0, { name = '@' .. capture, link = false, create = false }) end
+            local range = vim.treesitter.get_range(node, code, metadata[id])
+            local foreground = hl.reverse and hl.bg or hl.fg
+            if foreground or hl.bold or hl.italic then
+              order = order + 1
+              spans[#spans + 1] = {
+                start = range[3], ['end'] = range[6],
+                color = foreground and string.format('#%06x', foreground) or nil,
+                bold = hl.bold, italic = hl.italic,
+                priority = tonumber(metadata.priority or (metadata[id] or {}).priority) or 100,
+                order = order,
+              }
+            end
+          end
+        end
+      end)
+      table.sort(spans, function(a, b) return a.priority == b.priority and a.order < b.order or a.priority < b.priority end)
+      for _, span in ipairs(spans) do span.priority, span.order = nil, nil end
+    end)
+    highlights[#highlights + 1] = { code = code, language = language, spans = spans }
+  end
+  return highlights
+end
+
 local function send_snapshot(state, buffer, activate)
   if session ~= state or not state.client or not vim.api.nvim_buf_is_valid(buffer) then return end
   local document = state.documents[buffer]
@@ -91,6 +156,7 @@ local function send_snapshot(state, buffer, activate)
     opacity = math.max(0, math.min(1, tonumber(vim.g.markdown_preview_opacity) or 0.96)),
     activate = activate,
     theme = state.theme,
+    highlights = M.markdown_preview_code_highlights(text),
   } .. '\n'
   if #frame > 16 * 1024 * 1024 then
     warn 'buffer exceeds the 16 MiB IPC limit'
@@ -217,7 +283,14 @@ function M.start_markdown_preview()
             local decoded, reply = pcall(vim.json.decode, pending:sub(1, newline - 1))
             pending = pending:sub(newline + 1)
             if decoded then
-              if reply.error then
+              if reply.highlightRequest then
+                reply.highlightRequest = nil
+                reply.activate = false
+                reply.theme = state.theme
+                reply.highlights = M.markdown_preview_code_highlights(reply.text)
+                local frame = vim.json.encode(reply) .. '\n'
+                if #frame <= 16 * 1024 * 1024 then client:write(frame) end
+              elseif reply.error then
                 warn(reply.error)
               else
                 vim.api.nvim_exec_autocmds('User', { pattern = 'MarkdownPreviewUpdated', data = reply })
@@ -228,7 +301,10 @@ function M.start_markdown_preview()
         send_snapshot(state, state.selected, true)
       end)
     )
+    local config = vim.g.markdown_preview_config or (vim.fn.stdpath 'config' .. '/markdown-preview.json')
+    if not vim.g.markdown_preview_config and vim.fn.filereadable(config) == 0 then config = repository .. '/markdown-preview.json' end
     state.job = vim.fn.jobstart({ executable, '--socket', state.socket }, {
+      env = { MARKDOWN_PREVIEW_CONFIG = config },
       on_exit = function(_, code)
         if session == state then
           stop_preview(state)

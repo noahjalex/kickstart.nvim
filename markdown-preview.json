@@ -1,0 +1,10 @@
+{
+  "body": { "family": "Helvetica Neue", "size": 18 },
+  "heading": { "family": "Helvetica Neue", "size": 40, "weight": "bold" },
+  "code": { "family": "Menlo", "size": 14 },
+  "table": { "family": "Helvetica Neue", "size": 15 },
+  "articleWidth": 680,
+  "lineHeight": 30,
+  "paragraphSpacing": 24,
+  "cornerRadius": 10
+}

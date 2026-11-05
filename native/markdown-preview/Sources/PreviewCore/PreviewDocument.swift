@@ -28,14 +28,16 @@ public struct PreviewSnapshot: Codable {
     public let opacity: Double
     public let activate: Bool
     public let theme: PreviewTheme?
+    public let highlights: [PreviewCodeHighlight]?
 
-    public init(source: String, root: String, text: String, opacity: Double = 0.96, activate: Bool = true, theme: PreviewTheme? = nil) {
+    public init(source: String, root: String, text: String, opacity: Double = 0.96, activate: Bool = true, theme: PreviewTheme? = nil, highlights: [PreviewCodeHighlight]? = nil) {
         self.source = source
         self.root = root
         self.text = text
         self.opacity = opacity
         self.activate = activate
         self.theme = theme
+        self.highlights = highlights
     }
 }
 
@@ -84,21 +86,26 @@ public enum PreviewError: LocalizedError {
 public struct MarkdownRenderer {
     public let paths: PreviewPaths
     public let theme: PreviewTheme
-    public init(paths: PreviewPaths, theme: PreviewTheme = PreviewTheme()) {
+    public let style: PreviewStyle
+    public let highlights: [PreviewCodeHighlight]
+
+    public init(paths: PreviewPaths, theme: PreviewTheme = PreviewTheme(), style: PreviewStyle = PreviewStyle(), highlights: [PreviewCodeHighlight] = []) {
         self.paths = paths
         self.theme = theme
+        self.style = style
+        self.highlights = highlights
     }
 
     private var bodyFont: NSFont {
         let font = NSFont.systemFont(ofSize: 18)
-        return font.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: 18) } ?? font
+        let serif = font.fontDescriptor.withDesign(.serif).flatMap { NSFont(descriptor: $0, size: 18) } ?? font
+        return style.body?.font(fallback: serif) ?? serif
     }
 
     public func render(_ text: String) -> NSAttributedString {
         let paragraph = NSMutableParagraphStyle()
-        // Article proportions follow web prose: 18 pt type, 30 pt leading, 24 pt paragraph gaps.
-        paragraph.paragraphSpacing = 24
-        paragraph.minimumLineHeight = 30
+        paragraph.paragraphSpacing = style.paragraphGap
+        paragraph.minimumLineHeight = max(style.leading, bodyFont.pointSize * 1.3)
         return renderNode(Document(parsing: text), attributes: [
             .font: bodyFont, .foregroundColor: theme.color("foreground", fallback: .labelColor),
             .paragraphStyle: paragraph,
@@ -125,11 +132,14 @@ public struct MarkdownRenderer {
         case let heading as Heading:
             let level = min(5, max(0, heading.level - 1))
             let size = [40.0, 30, 24, 20, 18, 18][level]
-            attrs[.font] = NSFont.systemFont(ofSize: size, weight: .semibold)
+            let fallback = NSFont.systemFont(ofSize: 40, weight: .semibold)
+            let headingFont = style.heading?.font(fallback: fallback) ?? fallback
+            // A configured heading size is the H1 size; preserve the hierarchy below it.
+            attrs[.font] = NSFont(descriptor: headingFont.fontDescriptor, size: headingFont.pointSize * size / 40) ?? headingFont
             attrs[.kern] = -0.4
             attrs[.foregroundColor] = theme.color("heading\(heading.level)", fallback: .labelColor)
             let style = paragraphStyle()
-            style.minimumLineHeight = size * 1.2
+            style.minimumLineHeight = (attrs[.font] as! NSFont).pointSize * 1.25
             style.paragraphSpacingBefore = heading.indexInParent == 0 ? 0 : [32.0, 32, 24, 20, 16, 16][level]
             style.paragraphSpacing = [24.0, 16, 12, 8, 8, 8][level]
             attrs[.paragraphStyle] = style
@@ -138,24 +148,32 @@ public struct MarkdownRenderer {
         case is Emphasis: fontTrait(.italicFontMask); children()
         case is Strikethrough: attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue; children()
         case let code as InlineCode:
-            attrs[.font] = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+            attrs[.font] = style.code?.font(fallback: NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)) ?? NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
             attrs[.foregroundColor] = theme.color("code", fallback: .systemPink)
             attrs[.backgroundColor] = theme.color("codeBackground", fallback: .controlBackgroundColor)
             append(code.code)
         case let code as CodeBlock:
-            attrs[.font] = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+            let codeFont = style.code?.font(fallback: NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)) ?? NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+            attrs[.font] = codeFont
             attrs[.foregroundColor] = theme.color("foreground", fallback: .labelColor)
-            let block = NSTextBlock()
+            let block = RoundedCodeBlock()
+            block.radius = style.radius
+            block.outline = theme.color("border", fallback: .separatorColor)
             // TextKit otherwise gives a standalone block zero content width, wrapping every character.
             block.setContentWidth(100, type: .percentageValueType)
             block.backgroundColor = theme.color("codeBackground", fallback: .controlBackgroundColor)
             block.setWidth(16, type: .absoluteValueType, for: .padding)
             block.setWidth(8, type: .absoluteValueType, for: .margin)
             let style = paragraphStyle()
-            style.minimumLineHeight = 24; style.lineSpacing = 0; style.paragraphSpacing = 0
+            style.minimumLineHeight = max(24, codeFont.pointSize * 1.5); style.lineSpacing = 0; style.paragraphSpacing = 0
             style.textBlocks += [block]
             attrs[.paragraphStyle] = style
-            append(code.code); if !code.code.hasSuffix("\n") { append("\n") }
+            append(code.code)
+            let language = code.language?.components(separatedBy: .whitespaces).first ?? ""
+            if let highlight = highlights.first(where: { $0.language == language && $0.code == code.code }) {
+                highlight.apply(to: output, font: codeFont)
+            }
+            if !code.code.hasSuffix("\n") { append("\n") }
         case let link as Markdown.Link:
             attrs[.link] = link.destination
             attrs[.foregroundColor] = theme.color("link", fallback: .linkColor)
@@ -200,20 +218,21 @@ public struct MarkdownRenderer {
                 output.append(renderNode(item, attributes: itemAttrs))
             }
         case let table as Table:
-            let nativeTable = NSTextTable()
+            let nativeTable = RoundedPreviewTable()
+            nativeTable.radius = style.radius
+            nativeTable.outline = theme.color("border", fallback: .separatorColor)
             nativeTable.numberOfColumns = max(1, table.head.childCount)
             nativeTable.collapsesBorders = true
             nativeTable.setContentWidth(100, type: .percentageValueType)
             let rows = [Array(table.head.cells)] + table.body.rows.map { Array($0.cells) }
+            nativeTable.rowCount = rows.count
             for (rowIndex, row) in rows.enumerated() {
                 for (column, cell) in row.enumerated() {
                     let block = NSTextTableBlock(table: nativeTable, startingRow: rowIndex, rowSpan: 1, startingColumn: column, columnSpan: 1)
-                    block.setWidth(10, type: .absoluteValueType, for: .padding)
-                    block.setWidth(0.5, type: .absoluteValueType, for: .border, edge: .minY)
-                    block.setBorderColor(theme.color("border", fallback: .separatorColor))
-                    if rowIndex == 0 || rowIndex % 2 == 0 {
-                        block.backgroundColor = theme.color("codeBackground", fallback: .controlBackgroundColor)
-                    }
+                    block.setWidth(12, type: .absoluteValueType, for: .padding)
+                    let canvas = theme.color("background", fallback: .textBackgroundColor)
+                    let shade = theme.color("codeBackground", fallback: .controlBackgroundColor)
+                    block.backgroundColor = rowIndex == 0 ? shade : (rowIndex % 2 == 0 ? canvas.blended(withFraction: 0.45, of: shade) : canvas)
                     let style = paragraphStyle(); style.textBlocks = [block]
                     style.minimumLineHeight = 24; style.paragraphSpacing = 0
                     let alignment = column < table.columnAlignments.count ? table.columnAlignments[column] : nil
@@ -223,7 +242,10 @@ public struct MarkdownRenderer {
                     default: style.alignment = .left
                     }
                     var cellAttrs = attrs; cellAttrs[.paragraphStyle] = style
-                    cellAttrs[.font] = NSFont.systemFont(ofSize: 15, weight: rowIndex == 0 ? .semibold : .regular)
+                    let fallback = NSFont.systemFont(ofSize: 15, weight: rowIndex == 0 ? .semibold : .regular)
+                    var tableFont = self.style.table?.font(fallback: fallback) ?? fallback
+                    if rowIndex == 0 { tableFont = NSFontManager.shared.convert(tableFont, toHaveTrait: .boldFontMask) }
+                    cellAttrs[.font] = tableFont
                     output.append(renderNode(cell, attributes: cellAttrs))
                     output.append(NSAttributedString(string: "\n", attributes: cellAttrs))
                 }

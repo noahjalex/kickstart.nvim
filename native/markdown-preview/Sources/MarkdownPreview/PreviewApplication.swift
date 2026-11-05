@@ -12,12 +12,24 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var snapshots: [String: PreviewSnapshot] = [:]
     private let replyQueue = DispatchQueue(label: "local.dotfiles.MarkdownPreview.replies")
     private let socketPath: String
+    private var style = PreviewStyle()
     private let inspect = ProcessInfo.processInfo.environment["MARKDOWN_PREVIEW_INSPECT"] == "1"
 
     init(socketPath: String) { self.socketPath = socketPath }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        let config = ProcessInfo.processInfo.environment["MARKDOWN_PREVIEW_CONFIG"]
+            ?? ((ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] ?? NSHomeDirectory() + "/.config") + "/nvim/markdown-preview.json")
+        if FileManager.default.fileExists(atPath: config) {
+            do { style = try PreviewStyle.load(from: URL(fileURLWithPath: config)) }
+            catch {
+                let alert = NSAlert()
+                alert.messageText = "Markdown preview: invalid style configuration"
+                alert.informativeText = "\(config)\n\(error.localizedDescription)\nUsing default styles."
+                alert.runModal()
+            }
+        }
         let menu = NSMenu()
         let appItem = NSMenuItem(); menu.addItem(appItem)
         let appMenu = NSMenu(); appItem.submenu = appMenu
@@ -38,6 +50,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
         window.isReleasedWhenClosed = false
         window.isOpaque = false
         window.alphaValue = 1
+        window.titlebarAppearsTransparent = true
         window.center()
         let scroll = NSScrollView(frame: window.contentView!.bounds)
         scroll.autoresizingMask = [.width, .height]
@@ -72,7 +85,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
         guard let textView, let scroll = textView.enclosingScrollView else { return }
         let width = scroll.contentSize.width
         // A web-style reading measure, centered on wide windows with mobile-sized gutters on narrow ones.
-        let gutter = max(24, (width - 680) / 2)
+        let gutter = max(24, (width - style.readingWidth) / 2)
         textView.setFrameSize(NSSize(width: width, height: textView.frame.height))
         textView.textContainerInset = NSSize(width: gutter, height: 48)
         let imageWidth = max(1, min(640, width - 2 * gutter))
@@ -106,7 +119,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
                                        .underlineStyle: NSUnderlineStyle.single.rawValue]
         textView.selectedTextAttributes = [.backgroundColor: theme.color("selection", fallback: .selectedTextBackgroundColor),
                                            .foregroundColor: theme.color("foreground", fallback: .textColor)]
-        textView.textStorage!.setAttributedString(MarkdownRenderer(paths: paths, theme: theme).render(snapshot.text))
+        textView.textStorage!.setAttributedString(MarkdownRenderer(paths: paths, theme: theme, style: style, highlights: snapshot.highlights ?? []).render(snapshot.text))
         layoutArticle()
         current = snapshot
         window.title = paths.source.lastPathComponent + " — Markdown Preview"
@@ -138,8 +151,12 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
             }
             let cached = snapshots[target.path]
             let text = try cached?.text ?? String(contentsOf: target, encoding: .utf8)
-            let next = PreviewSnapshot(source: target.path, root: snapshot.root, text: text, opacity: snapshot.opacity, theme: snapshot.theme)
+            let next = PreviewSnapshot(source: target.path, root: snapshot.root, text: text, opacity: snapshot.opacity, theme: snapshot.theme, highlights: cached?.highlights)
             try displaySnapshot(next)
+            if cached == nil {
+                // Let the owning editor supply its installed parsers for a newly navigated document too.
+                sendReply(["highlightRequest": true, "source": target.path, "root": snapshot.root, "text": text, "opacity": snapshot.opacity])
+            }
             // Fragment-only links remain in this document. Native text stays readable if no heading matches.
             if let fragment = URLComponents(string: destination)?.fragment {
                 let words = fragment.replacingOccurrences(of: "-", with: " ")
@@ -162,13 +179,16 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
             let paths = try PreviewPaths(source: snapshot.source, root: snapshot.root)
             // Foundation and libuv may spell the same file as /tmp/... and /private/tmp/....
             let normalized = PreviewSnapshot(source: paths.source.path, root: paths.root.path, text: snapshot.text,
-                                             opacity: snapshot.opacity, activate: snapshot.activate, theme: snapshot.theme)
+                                             opacity: snapshot.opacity, activate: snapshot.activate, theme: snapshot.theme, highlights: snapshot.highlights)
             snapshots[paths.source.path] = normalized
             if snapshot.activate || current?.source == normalized.source { try displaySnapshot(normalized) }
             var reply: [String: Any] = ["source": snapshot.source, "root": snapshot.root, "bytes": snapshot.text.utf8.count,
                                         "pid": getpid(), "window": window.windowNumber, "opacity": snapshot.opacity]
             if inspect {
                 reply["rendered"] = textView.string
+                reply["syntaxSpans"] = current?.highlights?.reduce(0) { $0 + $1.spans.count } ?? 0
+                reply["bodyFont"] = style.body?.family
+                reply["readingWidth"] = style.readingWidth
                 let background = window.backgroundColor.usingColorSpace(.sRGB)!
                 reply["backgroundRGB"] = [background.redComponent, background.greenComponent, background.blueComponent]
                 reply["darkAppearance"] = window.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
