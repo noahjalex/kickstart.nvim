@@ -168,6 +168,11 @@ final class DiagramViewerTests: XCTestCase {
         XCTAssertTrue(panel.styleMask.contains(.fullSizeContentView))
         XCTAssertEqual(panel.titleVisibility, .hidden)
         XCTAssertTrue(panel.titlebarAppearsTransparent)
+        for button: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            XCTAssertTrue(try XCTUnwrap(panel.standardWindowButton(button)).isHidden)
+        }
+        XCTAssertTrue(panel.styleMask.contains(.resizable))
+        XCTAssertTrue(panel.styleMask.contains(.closable), "Keyboard dismissal must remain available")
         XCTAssertEqual(panel.backgroundColor, diagram.canvasColor)
         XCTAssertEqual(controller.viewer.frame.height, panel.frame.height, accuracy: 1,
                        "Canvas must extend beneath the transparent title bar")

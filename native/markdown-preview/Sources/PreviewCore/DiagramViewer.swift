@@ -271,6 +271,9 @@ public final class DiagramViewerController: NSWindowController, NSWindowDelegate
         panel.title = "Mermaid diagram"
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
+        for button: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            panel.standardWindowButton(button)?.isHidden = true
+        }
         panel.backgroundColor = diagram.canvasColor
         panel.appearance = viewer.appearance
         panel.minSize = NSSize(width: 640, height: 300)

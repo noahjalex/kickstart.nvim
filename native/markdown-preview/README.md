@@ -142,7 +142,7 @@ changing aspect ratio; large inline diagrams can therefore have small labels.
 
 **Click a diagram to expand it** in a floating, transient native utility panel,
 centered over the article. The canvas extends beneath a transparent, untitled title
-bar, retaining native window buttons and resizing without a gray strip. The panel
+bar, with window buttons hidden and native edge resizing retained. The panel
 starts fitted and centers small diagrams. Ordinary document images do not open it. A new diagram click replaces the
 previous panel; closing it leaves the article open. Snapshot updates dismiss stale panels.
 
