@@ -36,6 +36,12 @@ public final class DiagramAttachment: NSTextAttachment {
 public final class DiagramArticleTextView: NSTextView {
     public var onOpenDiagram: ((DiagramAttachment) -> Void)?
 
+    public override func draw(_ dirtyRect: NSRect) {
+        // TextKit skips block backgrounds when a scroll exposes only their padding/border.
+        // Include visible glyphs in its draw range; AppKit still clips to the dirty region.
+        super.draw(visibleRect.union(dirtyRect))
+    }
+
     public func diagram(at point: NSPoint) -> DiagramAttachment? {
         guard let layout = layoutManager, let container = textContainer, let storage = textStorage,
               storage.length > 0 else { return nil }

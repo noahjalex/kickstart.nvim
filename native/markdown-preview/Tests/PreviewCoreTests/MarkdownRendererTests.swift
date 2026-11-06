@@ -139,6 +139,56 @@ final class MarkdownRendererTests: XCTestCase {
         }
     }
 
+    func testRoundedBlockBordersSurvivePartialRedraw() throws {
+        let paths = try PreviewPaths(source: source.path, root: directory.path)
+        let theme = PreviewTheme(colors: ["border": "#ff0000", "foreground": "#000000", "background": "#ffffff", "codeBackground": "#ffffff"])
+        func isBorder(_ color: NSColor) -> Bool {
+            let rgb = color.usingColorSpace(.sRGB)!
+            return rgb.redComponent > 0.8 && rgb.greenComponent < 0.2 && rgb.blueComponent < 0.2
+        }
+        for markdown in [
+            "```swift\nlet value = 1\n```",
+            "```mermaid\nstateDiagram-v2\n[*] --> Draft\nDraft --> Published\nPublished --> [*]\n```",
+            "| Name | Value |\n| --- | --- |\n| First | One |\n| Last | Two |"
+        ] {
+            let rendered = MarkdownRenderer(paths: paths, theme: theme).render("## Heading\n\n" + markdown + "\n\nFollowing paragraph.")
+            let storage = NSTextStorage(attributedString: rendered)
+            let layout = NSLayoutManager(); storage.addLayoutManager(layout)
+            let container = NSTextContainer(size: NSSize(width: 600, height: 10000))
+            container.lineFragmentPadding = 0
+            container.widthTracksTextView = true
+            layout.addTextContainer(container)
+            let view = DiagramArticleTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 1000), textContainer: container)
+            view.isEditable = false
+            view.drawsBackground = false
+            view.textContainerInset = NSSize(width: 24, height: 48)
+            for width in [320.0, 850.0] {
+                view.setFrameSize(NSSize(width: width, height: 1000))
+                MarkdownRenderer.resizeAttachments(in: storage, availableWidth: width - 48)
+                layout.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
+                view.sizeToFit()
+                let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                let borderRows = (0..<bitmap.pixelsHigh).filter {
+                    isBorder(bitmap.colorAt(x: bitmap.pixelsWide / 3, y: $0)!)
+                }
+                let top = try XCTUnwrap(borderRows.first)
+                let bottom = try XCTUnwrap(borderRows.last)
+                let scale = CGFloat(bitmap.pixelsHigh) / view.bounds.height
+                // Scrolling can expose only padding, without any glyphs in the dirty strip.
+                for row in [top, bottom] {
+                    let strip = NSRect(x: 0, y: CGFloat(row) / scale, width: width, height: 2)
+                    let partial = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: strip))
+                    view.cacheDisplay(in: strip, to: partial)
+                    let redPixels = (0..<partial.pixelsHigh).reduce(0) { count, y in
+                        count + (0..<partial.pixelsWide).filter { isBorder(partial.colorAt(x: $0, y: y)!) }.count
+                    }
+                    XCTAssertGreaterThan(redPixels, 100, "Partial redraw clipped border at width \(width): \(markdown)")
+                }
+            }
+        }
+    }
+
     func testCodeExamplesCopyAsPlainText() throws {
         let paths = try PreviewPaths(source: source.path, root: directory.path)
         let code = "let 日本語 = \"<not markup>\"\nprint(日本語)\n"
