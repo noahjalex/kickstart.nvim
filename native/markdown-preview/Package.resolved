@@ -1,5 +1,15 @@
 {
+  "originHash" : "7d764382478be1b9c0cbd252d0df798c05cff7b64c3386b11f2eedc381ba6619",
   "pins" : [
+    {
+      "identity" : "mermaidkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/2389-research/MermaidKit.git",
+      "state" : {
+        "revision" : "64c19fbddf5604122b01563b3ab727dbadf0ee95",
+        "version" : "2.9.1"
+      }
+    },
     {
       "identity" : "swift-cmark",
       "kind" : "remoteSourceControl",
@@ -19,5 +29,5 @@
       }
     }
   ],
-  "version" : 2
+  "version" : 3
 }

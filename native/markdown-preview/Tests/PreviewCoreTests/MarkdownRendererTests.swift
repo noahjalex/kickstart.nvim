@@ -53,12 +53,14 @@ final class MarkdownRendererTests: XCTestCase {
         let rendered = MarkdownRenderer(paths: paths).render(markdown)
         for text in ["Main heading", "italic", "bold", "• first", "• nested", "☑ finished", "3. third", "4. fourth",
                      "Quoted words", "let code = \"<not markup>\"", "Alice", "Long cell", "日本語",
-                     "<custom>Unknown content</custom>", "graph TD; A-->B", "$unhandled math$"] {
+                     "<custom>Unknown content</custom>", "$unhandled math$"] {
             XCTAssertTrue(rendered.string.contains(text), "Missing: \(text) in \(rendered.string)")
         }
         func attribute(_ key: NSAttributedString.Key, at text: String) -> Any? {
             rendered.attribute(key, at: (rendered.string as NSString).range(of: text).location, effectiveRange: nil)
         }
+        XCTAssertFalse(rendered.string.contains("graph TD; A-->B"))
+        XCTAssertTrue(rendered.string.contains("\u{fffc}"))
         XCTAssertGreaterThan((attribute(.font, at: "Main heading") as! NSFont).pointSize, 16)
         XCTAssertTrue(NSFontManager.shared.traits(of: attribute(.font, at: "bold") as! NSFont).contains(.boldFontMask))
         XCTAssertTrue(NSFontManager.shared.traits(of: attribute(.font, at: "italic") as! NSFont).contains(.italicFontMask))
@@ -96,6 +98,62 @@ final class MarkdownRendererTests: XCTestCase {
             let rect = layout.lineFragmentUsedRect(forGlyphAt: 0, effectiveRange: &line)
             XCTAssertGreaterThanOrEqual(line.length, code.utf16.count, "Code collapsed at width \(width): \(rect)")
             XCTAssertLessThan(layout.usedRect(for: container).height, 200, "Short code must not turn into a tall column")
+        }
+    }
+
+    func testTableRightBorderSurvivesNativeClipping() throws {
+        let paths = try PreviewPaths(source: source.path, root: directory.path)
+        let theme = PreviewTheme(colors: ["border": "#ff0000", "foreground": "#000000", "background": "#ffffff", "codeBackground": "#ffffff"])
+        let rendered = MarkdownRenderer(paths: paths, theme: theme).render("""
+        | OS | PATH |
+        | --- | --- |
+        | Linux, MacOS | `$XDG_CONFIG_HOME/nvim, ~/.config/nvim` |
+        | Windows (cmd) | `%localappdata%\\nvim\\` |
+        | Windows (powershell) | `$env:LOCALAPPDATA\\nvim\\` |
+        """)
+        let storage = NSTextStorage(attributedString: rendered)
+        let layout = NSLayoutManager(); storage.addLayoutManager(layout)
+        let container = NSTextContainer(size: NSSize(width: 600, height: 10000))
+        container.lineFragmentPadding = 0
+        container.widthTracksTextView = true
+        layout.addTextContainer(container)
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 600), textContainer: container)
+        view.textContainerInset = NSSize(width: 24, height: 24)
+        let row = (rendered.string as NSString).range(of: "Windows (cmd)")
+        for width in [600.0, 320.0, 850.0] {
+            view.setFrameSize(NSSize(width: width, height: 600))
+            layout.ensureLayout(for: container)
+            let rect = layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: row, actualCharacterRange: nil), in: container)
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let y = Int((rect.midY + view.textContainerOrigin.y) * CGFloat(bitmap.pixelsHigh) / view.bounds.height)
+            var borders = 0
+            var previousRed = false
+            for x in 0..<bitmap.pixelsWide {
+                let color = bitmap.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+                let red = color.redComponent > 0.8 && color.greenComponent < 0.2 && color.blueComponent < 0.2
+                if red && !previousRed { borders += 1 }
+                previousRed = red
+            }
+            XCTAssertEqual(borders, 3, "Left, divider, and right borders must be visible at width \(width)")
+        }
+    }
+
+    func testCodeExamplesCopyAsPlainText() throws {
+        let paths = try PreviewPaths(source: source.path, root: directory.path)
+        let code = "let 日本語 = \"<not markup>\"\nprint(日本語)\n"
+        let rendered = MarkdownRenderer(paths: paths).render("Inline `example()`\n\n```swift\n\(code)```\n")
+        let view = NSTextView()
+        view.isEditable = false
+        view.isSelectable = true
+        view.textStorage!.setAttributedString(rendered)
+        let pasteboard = NSPasteboard.withUniqueName()
+        defer { pasteboard.releaseGlobally() }
+        for example in ["example()", code] {
+            view.setSelectedRange((view.string as NSString).range(of: example))
+            pasteboard.clearContents()
+            XCTAssertTrue(view.writeSelection(to: pasteboard, types: view.writablePasteboardTypes))
+            XCTAssertEqual(pasteboard.string(forType: .string), example)
         }
     }
 
@@ -224,7 +282,7 @@ final class MarkdownRendererTests: XCTestCase {
             view.cacheDisplay(in: view.bounds, to: bitmap)
             XCTAssertGreaterThan(layout.usedRect(for: container).height, 200)
             if width == 600, let png = bitmap.representation(using: .png, properties: [:]) {
-                try png.write(to: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("markdown-preview-styles.png"))
+                try png.write(to: directory.appendingPathComponent("markdown-preview-styles.png"))
             }
         }
         let invalid = try JSONDecoder().decode(PreviewStyle.self, from: Data("{\"articleWidth\":-1,\"body\":{\"size\":999,\"family\":\"Missing Font\"}}".utf8))

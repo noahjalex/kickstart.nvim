@@ -1,5 +1,6 @@
 import AppKit
 import Markdown
+import MermaidRender
 
 /// Resolved Neovim highlight colors captured at launch; absent colors use native defaults.
 public struct PreviewTheme: Codable {
@@ -106,18 +107,32 @@ public struct MarkdownRenderer {
         let paragraph = NSMutableParagraphStyle()
         paragraph.paragraphSpacing = style.paragraphGap
         paragraph.minimumLineHeight = max(style.leading, bodyFont.pointSize * 1.3)
-        return renderNode(Document(parsing: text), attributes: [
+        var diagramAttempts = 8
+        let result = renderNode(Document(parsing: text), attributes: [
             .font: bodyFont, .foregroundColor: theme.color("foreground", fallback: .labelColor),
             .paragraphStyle: paragraph,
-        ])
+        ], diagramAttempts: &diagramAttempts)
+        Self.resizeAttachments(in: result, availableWidth: 640)
+        return result
     }
 
-    private func renderNode(_ node: Markup, attributes: [NSAttributedString.Key: Any]) -> NSMutableAttributedString {
+    /// Shared by initial rendering and the app's article resize path; never upscale or distort.
+    public static func resizeAttachments(in text: NSMutableAttributedString, availableWidth: CGFloat) {
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            guard let attachment = value as? NSTextAttachment, let image = attachment.image,
+                  image.size.width > 0, image.size.height > 0 else { return }
+            let inset: CGFloat = attachment is DiagramAttachment ? 48 : 0
+            let scale = min(1, max(1, min(640, availableWidth) - inset) / image.size.width, 480 / image.size.height)
+            attachment.bounds = NSRect(x: 0, y: 0, width: image.size.width * scale, height: image.size.height * scale)
+        }
+    }
+
+    private func renderNode(_ node: Markup, attributes: [NSAttributedString.Key: Any], diagramAttempts: inout Int) -> NSMutableAttributedString {
         var attrs = attributes
         let output = NSMutableAttributedString(string: "")
         func append(_ string: String) { output.append(NSAttributedString(string: string, attributes: attrs)) }
         func children() {
-            for child in node.children { output.append(renderNode(child, attributes: attrs)) }
+            for child in node.children { output.append(renderNode(child, attributes: attrs, diagramAttempts: &diagramAttempts)) }
         }
         func paragraphStyle() -> NSMutableParagraphStyle {
             (attrs[.paragraphStyle] as! NSParagraphStyle).mutableCopy() as! NSMutableParagraphStyle
@@ -153,6 +168,44 @@ public struct MarkdownRenderer {
             attrs[.backgroundColor] = theme.color("codeBackground", fallback: .controlBackgroundColor)
             append(code.code)
         case let code as CodeBlock:
+            let language = code.language?.components(separatedBy: .whitespaces).first ?? ""
+            // ponytail: synchronous, bounded previews; move off-thread only if these small inputs prove slow.
+            if language == "mermaid", diagramAttempts > 0 {
+                diagramAttempts -= 1
+                // MermaidKit 2.9.1 increments arbitrary Int autonumbers unchecked. Reject the
+                // keyword anywhere (even comments/metadata/labels) before upstream preprocessing.
+                if code.code.utf8.count <= 2048, code.code.filter({ $0 == "\n" }).count <= 64,
+                   code.code.range(of: "autonumber", options: .caseInsensitive) == nil {
+                    let foreground = theme.color("foreground", fallback: theme.dark ? .white : .black)
+                    let diagramTheme = DiagramTheme(
+                        ink: foreground, secondaryTextColor: foreground, tertiaryTextColor: foreground,
+                        canvas: theme.color("background", fallback: theme.dark ? .black : .white),
+                        accent: theme.color("link", fallback: .systemBlue),
+                        hairline: theme.color("border", fallback: .separatorColor), prefersDark: theme.dark,
+                        fontFamily: bodyFont.familyName)
+                    if let image = MermaidRenderer.image(source: code.code, theme: diagramTheme),
+                       let pdf = MermaidRenderer.pdfData(source: code.code, theme: diagramTheme),
+                       let diagram = DiagramAttachment(image: image, pdfData: pdf, canvasColor: diagramTheme.canvas, dark: theme.dark, source: code.code) {
+                        let block = RoundedCodeBlock()
+                        block.radius = style.radius
+                        block.outline = theme.color("border", fallback: .separatorColor)
+                        block.backgroundColor = diagramTheme.canvas
+                        block.setContentWidth(100, type: .percentageValueType)
+                        block.setWidth(16, type: .absoluteValueType, for: .padding)
+                        block.setWidth(8, type: .absoluteValueType, for: .margin)
+                        let centered = paragraphStyle()
+                        centered.alignment = .center
+                        centered.textBlocks += [block]
+                        attrs[.paragraphStyle] = centered
+                        attrs[.toolTip] = "Click to expand; right-click the expanded diagram to Copy Source"
+                        let imageText = NSMutableAttributedString(attributedString: NSAttributedString(attachment: diagram))
+                        imageText.addAttributes(attrs, range: NSRange(location: 0, length: imageText.length))
+                        output.append(imageText)
+                        append("\n")
+                        return output
+                    }
+                }
+            }
             let codeFont = style.code?.font(fallback: NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)) ?? NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
             attrs[.font] = codeFont
             attrs[.foregroundColor] = theme.color("foreground", fallback: .labelColor)
@@ -168,11 +221,11 @@ public struct MarkdownRenderer {
             style.minimumLineHeight = max(24, codeFont.pointSize * 1.5); style.lineSpacing = 0; style.paragraphSpacing = 0
             style.textBlocks += [block]
             attrs[.paragraphStyle] = style
-            append(code.code)
-            let language = code.language?.components(separatedBy: .whitespaces).first ?? ""
+            let sourceText = NSMutableAttributedString(string: code.code, attributes: attrs)
             if let highlight = highlights.first(where: { $0.language == language && $0.code == code.code }) {
-                highlight.apply(to: output, font: codeFont)
+                highlight.apply(to: sourceText, font: codeFont)
             }
+            output.append(sourceText)
             if !code.code.hasSuffix("\n") { append("\n") }
         case let link as Markdown.Link:
             attrs[.link] = link.destination
@@ -215,7 +268,7 @@ public struct MarkdownRenderer {
                 let marker = checkbox.map { $0 == .checked ? "☑ " : "☐ " }
                     ?? (node is OrderedList ? "\(start + UInt(index)). " : "• ")
                 output.append(NSAttributedString(string: marker, attributes: itemAttrs))
-                output.append(renderNode(item, attributes: itemAttrs))
+                output.append(renderNode(item, attributes: itemAttrs, diagramAttempts: &diagramAttempts))
             }
         case let table as Table:
             let nativeTable = RoundedPreviewTable()
@@ -246,7 +299,7 @@ public struct MarkdownRenderer {
                     var tableFont = self.style.table?.font(fallback: fallback) ?? fallback
                     if rowIndex == 0 { tableFont = NSFontManager.shared.convert(tableFont, toHaveTrait: .boldFontMask) }
                     cellAttrs[.font] = tableFont
-                    output.append(renderNode(cell, attributes: cellAttrs))
+                    output.append(renderNode(cell, attributes: cellAttrs, diagramAttempts: &diagramAttempts))
                     output.append(NSAttributedString(string: "\n", attributes: cellAttrs))
                 }
             }

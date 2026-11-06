@@ -70,7 +70,8 @@ final class RoundedPreviewTable: NSTextTable {
 
     override func drawBackground(for block: NSTextTableBlock, withFrame frameRect: NSRect, in controlView: NSView, characterRange charRange: NSRange, layoutManager: NSLayoutManager) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
-        let rect = frameRect
+        // TextKit clips painting to the cell frame; keep the entire outline inside it.
+        let rect = frameRect.insetBy(dx: 0.5, dy: 0.5)
         let first = block.startingRow == 0
         let last = block.startingRow == rowCount - 1
         let left = block.startingColumn == 0

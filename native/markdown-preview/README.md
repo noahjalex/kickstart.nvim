@@ -4,12 +4,13 @@
 
 A local, read-only macOS app using AppKit, `NSTextView`/TextKit 1, and Apple's
 [`swift-markdown`](https://github.com/swiftlang/swift-markdown). No web view,
-HTML rendering, JavaScript, HTTP server, bundled syntax highlighter, or diagram engine.
+HTML rendering, JavaScript, HTTP server, or bundled syntax highlighter.
+Mermaid fences use the pure-Swift [MermaidKit](https://github.com/2389-research/MermaidKit) diagram engine.
 Syntax colors come from the owning Neovim's Tree-sitter parsers.
 
 ## Build and install
 
-Requirements: macOS 13+, Xcode or Command Line Tools with Swift 5.9+, Git, and
+Requirements: macOS 14+, Xcode or Command Line Tools with Swift 6.2+, Git, and
 this repository's Neovim configuration (Neovim 0.11+ with the `markdown` and
 `markdown_inline` Tree-sitter parsers). Tested with Neovim 0.12.3. Python 3.9+
 is needed only for integration tests.
@@ -23,7 +24,10 @@ From the Neovim repository root:
 This fetches the revisions in `Package.resolved`, builds a release executable,
 and installs an ad-hoc-signed `native/markdown-preview/Markdown Preview.app`
 **inside this checkout**. No global installation or background service is needed.
-The package pins swift-markdown 0.6.0 and locks its transitive swift-cmark revision.
+The package pins swift-markdown 0.6.0 and MermaidKit 2.9.1 and locks their revisions.
+MermaidKit requires Swift tools 6.2 and macOS 14; this host retains Swift 5 language
+mode (no unrelated strict-concurrency migration). No Linux raster traits are enabled,
+so the resolved macOS graph has no Silica/Cairo dependencies.
 Keep `Package.resolved` checked in; normal builds disable automatic resolution.
 The first build needs network access. Subsequent builds reuse SwiftPM's cache.
 Build output and the app bundle are ignored by Git. Delete them to uninstall.
@@ -95,14 +99,98 @@ shows an alert and uses defaults. `vim.g.markdown_preview_config` overrides the 
 standalone clients can set `MARKDOWN_PREVIEW_CONFIG` (otherwise the app uses
 `$XDG_CONFIG_HOME/nvim/markdown-preview.json`, falling back to `~/.config/nvim`).
 
+### Native Mermaid diagrams
+
+Fences whose first language token is exactly `mermaid` render a centered MermaidKit
+image inside a rounded boundary. Successful diagrams hide duplicate source; click a
+diagram, then right-click its canvas and choose **Copy Source** for its exact fence
+content, including whitespace.
+Ordinary code remains selectable. Invalid, unsupported, over-limit, or unrenderable inputs remain
+source-only; no alerts or network access occur. The package parser is permissive:
+some malformed syntax may produce a partial diagram rather than fail.
+
+Temporary safety limitation: MermaidKit 2.9.1 can trap on integer overflow when
+incrementing sequence `autonumber`. Any Mermaid source containing `autonumber`
+(case-insensitive substring, anywhere) is therefore kept source-only **before**
+calling the package. This deliberately also rejects safe numbering, `autonumber off`,
+and mentions in comments, metadata, labels, or longer words; it does not attempt to
+reimplement upstream parsing or numeric validation. Revisit after an upstream fix
+and dependency update. Exact source remains selectable/copyable.
+
+Flowchart (`flowchart`/`graph`), `sequenceDiagram`, and `pie` have been exercised
+with actual offscreen image creation, source copying, and TextKit layout in light
+and dark themes. The large manual fixture additionally exercises `stateDiagram-v2`.
+MermaidKit 2.9.1 also recognizes class, ER, gantt, timeline,
+mindmap, journey, quadrant, packet, XY, kanban, radar, treemap, treeView, venn,
+cynefin, wardley, ishikawa, eventmodeling, swimlane, gitGraph, sankey, requirement,
+zenuml, C4, architecture, and block dialects. Those are package capabilities, not
+coverage verified by this prototype; Mermaid.js syntax parity is not promised.
+
+To bound synchronous work, only the first eight Mermaid fences per snapshot are
+attempted, each at most 2,048 UTF-8 bytes and 64 newline characters. Oversized or
+invalid fences still consume an attempt. The package additionally rejects flowcharts
+with more than 500 edges and output canvases at/above 4,000 points per dimension.
+These are conservative input bounds, not a hard execution-time deadline or sandbox.
+No background service, async rendering queue, or renderer-selection framework was added.
+
+Diagrams use Neovim foreground/background/link/border colors, the configured body
+font family, and the package's categorical palette. Label sizes and palette are
+package defaults, not a separate configurable typography system. Native attachment
+images carry the package's useful accessibility narration. The existing image
+resize path fits them within the article and 640×480 points without upscaling or
+changing aspect ratio; large inline diagrams can therefore have small labels.
+
+**Click a diagram to expand it** in a floating, transient native utility panel,
+centered over the article. The canvas extends beneath a transparent, untitled title
+bar, retaining native window buttons and resizing without a gray strip. The panel
+starts fitted and centers small diagrams. Ordinary document images do not open it. A new diagram click replaces the
+previous panel; closing it leaves the article open. Snapshot updates dismiss stale panels.
+
+- Mouse wheel/trackpad scrolling zooms; click-and-drag pans with the hand cursor.
+- Pinch or **⌘+** (also **⌘=**) / **⌘−** also zooms. No helper bar is shown.
+- **⌘0** fits the whole diagram; resizing keeps fitting until you zoom.
+- Right-click the diagram and choose **Copy Source** to copy exact Mermaid source,
+  not a PDF or image.
+- **Escape**, **⌘W**, clicking outside, or switching apps dismisses the panel.
+  Local/global mouse monitors are removed on dismissal or controller destruction.
+  Outside clicks still reach their destination. Article Copy/Select All are unchanged.
+
+Expansion draws the package's **original vector PDF**, exported once from the same
+guarded source and custom theme alongside the inline image. It never magnifies an
+inline thumbnail or reruns the parser on pan/zoom. PDF metadata is limited to one
+page, 8 MiB and 4,096 points per dimension; package output has tighter dimension
+bounds. Zoom is bounded to 2.5–800%; vector drawing clips to the visible region
+instead of allocating a zoom-sized raster. Export failure keeps the fence source-only.
+The raw `autonumber` exclusion and all existing source/work budgets apply before
+both image creation and PDF export; expansion has no alternate force-render path.
+
+The four large manual fixtures (branching flowchart, seven-person sequence, state
+machine, wide delivery graph) are checked for native diagram attachments and real
+vector text/page dimensions. Their expanded PDFs and offscreen canvas PNGs are saved
+under `.build/lane-artifacts/expanded-{1,2,3,4}.{pdf,png}`. Tests exercise attachment
+hit-testing, inline centering/boundaries, exact source copying, native pan bounds,
+wheel zoom, fit/zoom/resize, shortcut dispatch, panel configuration, dismissal routing,
+and monitor/controller cleanup using unshown views/windows. Physical outside-click
+delivery, floating placement, mouse/trackpad feel, and visual interaction were **not
+tested**: no app, Neovim, viewer or desktop window was launched during implementation.
+`./test-preview.sh` is the user-invoked manual check. The revised offscreen suite has
+15 passing tests; release build and ad-hoc signing are checked separately.
+
+`swift test --disable-automatic-resolution` is offscreen-only. Its Mermaid checks
+write six diagram PNGs (flowchart/sequence/pie × light/dark) under the lane-local
+`.build/lane-artifacts/`; no viewer or app is launched. Visible UI/in-editor
+integration is deliberately not tested in this prototype.
+
 ### Tree-sitter syntax highlighting
 
 Fenced languages are resolved through `vim.treesitter.language.get_lang` (including
 aliases), then use the installed parser, highlight queries, nested language
 injections, and resolved `@capture.language` colors/bold/italic. UTF-8 captures are
 converted to native UTF-16 text ranges, so non-ASCII code stays correctly colored.
-List/quote container prefixes are removed before parsing the code. Unknown languages,
-diagrams, and missing parsers/queries remain plain code. There is no regex lexer,
+List/quote container prefixes are removed before parsing the code. Unknown languages
+and missing parsers/queries remain plain code. Mermaid source-only fallbacks use this
+path; successfully rendered fences expose source through **Copy Source** instead.
+There is no regex lexer,
 second parser installation, or automatic network fetch during preview.
 
 macOS/AppKit has no built-in general-purpose code syntax highlighter. Neovim already
@@ -169,7 +257,8 @@ There is no blur/material layer. Very low opacity naturally reduces contrast.
 - Headings, paragraphs, nested emphasis, links, nested/task/ordered lists,
   blockquotes, syntax-colored fenced code, and wrapping native `NSTextTable` tables render
   as attributed text. Unhandled markup stays readable; literal HTML stays literal
-  text, and diagram fences stay plain code. No diagram output.
+  text. Mermaid fences add native diagram attachments with explicit Copy Source access;
+  other diagram languages stay plain code.
   Exact GitHub layout is not reproduced. The native
   document view grows with text and image layout so images below the first screen
   can be reached using the scrollbar.

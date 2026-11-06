@@ -5,7 +5,8 @@ import PreviewCore
 /// One read-only preview window. The Neovim socket owns its lifetime; no document is ever written.
 final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegate, NSTextViewDelegate {
     private var window: NSWindow!
-    private var textView: NSTextView!
+    private var textView: DiagramArticleTextView!
+    private var diagramViewer: DiagramViewerController?
     private var connection: Int32 = -1
     private var current: PreviewSnapshot?
     private var chosenOpacity: Double?
@@ -34,8 +35,17 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
         let appItem = NSMenuItem(); menu.addItem(appItem)
         let appMenu = NSMenu(); appItem.submenu = appMenu
         appMenu.addItem(withTitle: "Quit Markdown Preview", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: ""); menu.addItem(editItem)
+        let editMenu = NSMenu(title: "Edit"); editItem.submenu = editMenu
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
         let viewItem = NSMenuItem(title: "View", action: nil, keyEquivalent: ""); menu.addItem(viewItem)
         let viewMenu = NSMenu(title: "View"); viewItem.submenu = viewMenu
+        viewMenu.addItem(withTitle: "Zoom Diagram In", action: #selector(DiagramViewerView.zoomDiagramIn(_:)), keyEquivalent: "+")
+        viewMenu.addItem(withTitle: "Zoom Diagram Out", action: #selector(DiagramViewerView.zoomDiagramOut(_:)), keyEquivalent: "-")
+        viewMenu.addItem(withTitle: "Fit Diagram", action: #selector(DiagramViewerView.fitDiagram(_:)), keyEquivalent: "0")
+        viewMenu.addItem(withTitle: "Close Window", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        viewMenu.addItem(.separator())
         for (title, percent) in [("Background 65%", 65), ("Background 85%", 85), ("Background 100%", 100)] {
             let item = viewMenu.addItem(withTitle: title, action: #selector(changeOpacity(_:)), keyEquivalent: "")
             item.target = self; item.tag = percent
@@ -64,7 +74,18 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
         container.widthTracksTextView = true
         container.lineFragmentPadding = 0
         layout.addTextContainer(container)
-        textView = NSTextView(frame: scroll.bounds, textContainer: container)
+        textView = DiagramArticleTextView(frame: scroll.bounds, textContainer: container)
+        textView.onOpenDiagram = { [weak self] diagram in
+            guard let self else { return }
+            self.diagramViewer?.close()
+            let viewer = DiagramViewerController(diagram: diagram)
+            self.diagramViewer = viewer
+            // Only reached from an explicit diagram click, never from snapshot updates.
+            viewer.onClose = { [weak self, weak viewer] in
+                if self?.diagramViewer === viewer { self?.diagramViewer = nil }
+            }
+            viewer.present(relativeTo: self.window)
+        }
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
@@ -91,11 +112,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
         let imageWidth = max(1, min(640, width - 2 * gutter))
         let storage = textView.textStorage!
         storage.beginEditing()
-        storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { value, _, _ in
-            guard let attachment = value as? NSTextAttachment, let image = attachment.image else { return }
-            let scale = min(1, imageWidth / image.size.width, 480 / image.size.height)
-            attachment.bounds = NSRect(x: 0, y: 0, width: image.size.width * scale, height: image.size.height * scale)
-        }
+        MarkdownRenderer.resizeAttachments(in: storage, availableWidth: imageWidth)
         storage.endEditing()
         textView.layoutManager!.invalidateLayout(forCharacterRange: NSRange(location: 0, length: storage.length), actualCharacterRange: nil)
         textView.sizeToFit() // Grow vertically, never stretch the article's reading width.
@@ -119,6 +136,7 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
                                        .underlineStyle: NSUnderlineStyle.single.rawValue]
         textView.selectedTextAttributes = [.backgroundColor: theme.color("selection", fallback: .selectedTextBackgroundColor),
                                            .foregroundColor: theme.color("foreground", fallback: .textColor)]
+        diagramViewer?.close()
         textView.textStorage!.setAttributedString(MarkdownRenderer(paths: paths, theme: theme, style: style, highlights: snapshot.highlights ?? []).render(snapshot.text))
         layoutArticle()
         current = snapshot
@@ -265,6 +283,8 @@ final class PreviewApplication: NSObject, NSApplicationDelegate, NSWindowDelegat
     func windowWillClose(_ notification: Notification) { NSApp.terminate(nil) }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationWillTerminate(_ notification: Notification) {
+        diagramViewer?.close()
+        diagramViewer = nil
         if connection >= 0 { shutdown(connection, SHUT_RDWR) }
     }
 }
