@@ -10,10 +10,10 @@ A starting point for Neovim that is:
 
 **NOT** a Neovim distribution, but instead a starting point for your configuration.
 
-## Native Markdown preview (macOS)
+## Marklight (macOS)
 
-`<leader>rm` previews saved Markdown paths with unsaved live edits in a native AppKit window.
-See [build, configuration, and verification instructions](native/markdown-preview/README.md).
+`<leader>rm` opens Marklight from `~/Development/noahjalex/marklight`.
+Run `./build.sh` there to build the app.
 
 ## This fork: native plugin management
 

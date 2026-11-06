@@ -255,18 +255,6 @@ do
   -- [[ Basic Autocommands ]]
   --  See `:help lua-guide-autocommands`
 
-  vim.api.nvim_create_autocmd('FileType', {
-    pattern = 'markdown',
-    callback = function(event)
-      vim.keymap.set(
-        'n',
-        '<leader>rm',
-        function() require('custom.markdown-preview').start_markdown_preview() end,
-        { buffer = event.buf, desc = '[R]ender [M]arkdown natively' }
-      )
-    end,
-  })
-
   -- Highlight when yanking (copying) text
   --  Try it with `yap` in normal mode
   --  See `:help vim.hl.on_yank()`
