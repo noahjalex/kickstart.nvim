@@ -781,7 +781,9 @@ do
     -- But for many setups, the LSP (`rust_analyzer`) will work just fine
     -- rust_analyzer = {},
 
-    kotlin_lsp = {},
+    kotlin_lsp = {
+      cmd_env = { IJ_JAVA_OPTIONS = '-Xmx8g' },
+    },
     templ = {},
 
     -- Special Lua Config, as recommended by neovim help docs
