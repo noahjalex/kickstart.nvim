@@ -53,6 +53,8 @@ vim.keymap.set('v', '<leader>ah', ':Gen SyntaxHelp<CR>', { desc = 'AI syntax hel
 vim.keymap.set('v', '<leader>ac', ':Gen Complete_Code<CR>', { desc = 'AI complete selected code' })
 
 require('render-markdown').setup {
+  render_modes = true, -- render in every mode; anti_conceal still shows the raw cursor line
+  code = { border = 'thin' }, -- keep ``` fence lines instead of concealing them
   pipe_table = { cell = 'trimmed', min_width = 3, preset = 'round', style = 'full' },
 }
 require('livepreview.config').set { address = '127.0.0.1', dynamic_root = false, browser = 'open -a Safari' }
